@@ -20,7 +20,7 @@ st.write("Upload file ke Cloudinary, edit kolom tertentu, dan unduh hasilnya.")
 
 # --- 2. TENTUKAN KOLOM YANG BOLEH DIEDIT ---
 # Masukkan nama kolom yang boleh diedit di sini (harus sama persis dengan di Excel)
-EDITABLE_COLUMNS = ["STOK", "KETERANGAN", "HARGA JUAL"]
+EDITABLE_COLUMNS = ["query sales hari H", "jml fisik"]
 
 # --- 3. FITUR UPLOAD ---
 uploaded_file = st.file_uploader("Pilih file Excel (.xlsx)", type=["xlsx"])
