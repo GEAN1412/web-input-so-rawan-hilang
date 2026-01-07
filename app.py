@@ -5,7 +5,6 @@ import cloudinary.uploader
 import io
 
 # --- 1. KONFIGURASI CLOUDINARY ---
-# Mengambil dari st.secrets dengan penanganan error lebih baik
 try:
     cloudinary.config( 
       cloud_name = st.secrets["cloud_name"], 
@@ -21,8 +20,7 @@ st.set_page_config(page_title="Input Stok Toko", layout="wide")
 # --- 2. FUNGSI DIALOG KONFIRMASI ---
 @st.dialog("Konfirmasi Simpan Data")
 def confirm_submit_dialog(data_to_save, toko_code):
-    st.warning(f"⚠️ Apakah data Toko {toko_code} sudah ter-input dengan benar?")
-    
+    st.warning(f"⚠️ Apakah data Toko {toko_code} sudah benar?")
     if st.button("Ya, Submit Sekarang"):
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
@@ -30,7 +28,6 @@ def confirm_submit_dialog(data_to_save, toko_code):
         
         buffer.seek(0)
         try:
-            # Menggunakan cloud_name langsung dari secrets untuk memastikan validitas
             result = cloudinary.uploader.upload(
                 buffer, 
                 resource_type="raw", 
@@ -38,8 +35,8 @@ def confirm_submit_dialog(data_to_save, toko_code):
                 folder="laporan_toko_harian",
                 overwrite=True
             )
-            st.success(f"✅ Berhasil! Data Toko {toko_code} telah tersimpan.")
-            st.info(f"Link File: {result['secure_url']}")
+            st.success(f"✅ Berhasil Terarsip di Cloudinary!")
+            st.info(f"Link: {result['secure_url']}")
         except Exception as e:
             st.error(f"Gagal upload: {e}")
 
@@ -52,37 +49,40 @@ if 'master_df' not in st.session_state:
 uploaded_file = st.file_uploader("Upload File Excel Master", type=["xlsx"])
 
 if uploaded_file:
-    # Hanya baca file jika belum ada di session state
     if st.session_state.master_df is None:
-        st.session_state.master_df = pd.read_excel(uploaded_file)
+        # Load data dan hapus kolom duplikat jika ada di file asli
+        temp_df = pd.read_excel(uploaded_file)
+        st.session_state.master_df = temp_df.loc[:, ~temp_df.columns.duplicated()].copy()
 
 if st.session_state.master_df is not None:
     df_main = st.session_state.master_df.copy()
 
     st.divider()
-    col_f1, col_f2 = st.columns([1, 2])
-    with col_f1:
-        search_toko = st.text_input("🔍 Masukkan Kode Toko Anda:", placeholder="Contoh: F2AA").upper()
+    search_toko = st.text_input("🔍 Masukkan Kode Toko Anda:", placeholder="Contoh: F2AA").upper()
 
     if search_toko:
-        # Filter data awal
+        # 1. Filter data berdasarkan toko
         filtered_df = df_main[df_main['toko'].astype(str).str.contains(search_toko)].copy()
         
         if filtered_df.empty:
-            st.error(f"Data untuk toko {search_toko} tidak ditemukan.")
+            st.error(f"Data toko {search_toko} tidak ditemukan.")
         else:
-            # Pastikan kolom-kolom target ada
-            target_cols = ["query sales hari H", "jml fisik", "sls+fisik", "ket input", "selisih"]
-            for col in target_cols:
-                if col not in filtered_df.columns:
-                    filtered_df[col] = 0 if col != "ket input" else "tidak input"
+            # 2. BERSIHKAN KOLOM (Hapus kolom lama agar tidak duplikat saat dihitung ulang)
+            cols_to_fix = ["sls+fisik", "ket input", "selisih"]
+            for c in cols_to_fix:
+                if c in filtered_df.columns:
+                    filtered_df = filtered_df.drop(columns=[c])
 
-            # Tentukan kolom yang dikunci
+            # 3. INISIALISASI KOLOM BARU (Kosong)
+            filtered_df["sls+fisik"] = 0
+            filtered_df["ket input"] = "tidak input"
+            filtered_df["selisih"] = 0
+
+            # 4. DATA EDITOR
+            st.subheader(f"Data Toko: {search_toko}")
             EDITABLE_COLUMNS = ["query sales hari H", "jml fisik"]
             disabled_cols = [col for col in filtered_df.columns if col not in EDITABLE_COLUMNS]
 
-            # --- 4. DATA EDITOR ---
-            # Editor akan mengembalikan dataframe yang sudah diedit
             edited_df = st.data_editor(
                 filtered_df,
                 disabled=disabled_cols,
@@ -91,34 +91,28 @@ if st.session_state.master_df is not None:
                 key=f"editor_{search_toko}"
             )
 
-            # --- 5. LOGIKA RUMUS REAL-TIME ---
-            # Gunakan data dari edited_df untuk menghitung ulang secara instan
-            # pd.to_numeric dengan errors='coerce' akan mengubah data tidak valid menjadi NaN
-            sales = pd.to_numeric(edited_df['query sales hari H'], errors='coerce')
-            fisik = pd.to_numeric(edited_df['jml fisik'], errors='coerce')
+            # 5. LOGIKA RUMUS (Dijalankan setelah editor berubah)
+            sales = pd.to_numeric(edited_df['query sales hari H'], errors='coerce').fillna(0)
+            fisik = pd.to_numeric(edited_df['jml fisik'], errors='coerce').fillna(0)
             lpp   = pd.to_numeric(edited_df['stok lpp h-1'], errors='coerce').fillna(0)
 
-            # A. Update sls+fisik
-            edited_df['sls+fisik'] = sales.fillna(0) + fisik.fillna(0)
-
-            # B. Update selisih
+            # Hitung Rumus
+            edited_df['sls+fisik'] = sales + fisik
             edited_df['selisih'] = edited_df['sls+fisik'] - lpp
+            
+            # Logika Keterangan: Input jika kolom sales DAN fisik tidak kosong (bukan NaN)
+            raw_sales = edited_df['query sales hari H']
+            raw_fisik = edited_df['jml fisik']
+            edited_df['ket input'] = ["input" if pd.notnull(s) and pd.notnull(f) else "tidak input" 
+                                      for s, f in zip(raw_sales, raw_fisik)]
 
-            # C. Update ket input (Jika keduanya memiliki nilai/angka, termasuk 0)
-            # Kondisi: notnull() memastikan sel tidak kosong
-            edited_df['ket input'] = edited_df.apply(
-                lambda row: "input" if pd.notnull(row['query sales hari H']) and pd.notnull(row['jml fisik']) else "tidak input", 
-                axis=1
-            )
-
-            # Tampilkan tabel yang sudah berisi hasil kalkulasi (Read Only)
-            st.write("### Review Hasil Perhitungan:")
+            # 6. TAMPILKAN HASIL AKHIR (Satu tabel saja agar tidak bingung)
+            st.write("### Preview Hasil Sebelum Submit:")
             st.dataframe(edited_df, use_container_width=True, hide_index=True)
 
-            # --- 6. TOMBOL SUBMIT ---
             if st.button("🚀 Submit Data Toko"):
                 confirm_submit_dialog(edited_df, search_toko)
     else:
-        st.info("Silakan masukkan Kode Toko di atas.")
+        st.info("Silakan masukkan Kode Toko.")
 else:
     st.warning("Silakan upload file Master Excel.")
