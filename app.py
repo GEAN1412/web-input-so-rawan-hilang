@@ -19,20 +19,28 @@ except:
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
-# --- 2. FUNGSI LOAD DATA (DIPERBAIKI) ---
+# --- 2. FUNGSI LOAD DATA (DIPERBAIKI TOTAL) ---
 def load_data_from_cloud():
-    """Fungsi untuk mengambil file master dari Cloudinary dengan sistem Anti-Cache"""
+    """Mengambil file master dari Cloudinary menggunakan URL resmi SDK"""
     try:
-        cloud_name = st.secrets["cloud_name"]
-        # URL Langsung ke folder raw Cloudinary
-        # Menggunakan timestamp (?t=) agar file yang diambil selalu yang TERBARU
-        url = f"https://res.cloudinary.com/{cloud_name}/raw/upload/v{int(time.time())}/master_so_utama"
+        # Generate URL resmi dari Cloudinary untuk resource tipe 'raw'
+        # Version ditambahkan agar terhindar dari Cache browser
+        file_url = cloudinary.utils.cloudinary_url(
+            "master_so_utama.xlsx", 
+            resource_type="raw", 
+            version=int(time.time())
+        )[0]
         
-        response = requests.get(url, timeout=10)
+        response = requests.get(file_url, timeout=15)
+        
         if response.status_code == 200:
             return pd.read_excel(io.BytesIO(response.content))
-        return None
+        else:
+            # Jika ingin debug, aktifkan baris di bawah ini:
+            # st.write(f"Debug: Status Code {response.status_code}")
+            return None
     except Exception as e:
+        # st.write(f"Debug Error: {e}")
         return None
 
 # --- 3. DIALOG KONFIRMASI SIMPAN ---
@@ -48,14 +56,14 @@ def confirm_submit_dialog(data_toko, toko_code):
         try:
             cloudinary.uploader.upload(
                 buffer, resource_type="raw", 
-                public_id=f"Hasil_Toko_{toko_code}", 
+                public_id=f"Hasil_Toko_{toko_code}.xlsx", 
                 folder="rekap_harian_toko", overwrite=True
             )
             st.success(f"✅ Data Toko {toko_code} Berhasil Disimpan!")
         except Exception as e:
             st.error(f"Gagal simpan: {e}")
 
-# --- 4. NAVIGASI ---
+# --- 4. SISTEM MENU ---
 if 'menu_active' not in st.session_state:
     st.session_state.menu_active = "HOME"
 
@@ -94,35 +102,35 @@ elif st.session_state.menu_active == "ADMIN":
         st.subheader("1. Upload & Publish Data Baru")
         file_admin = st.file_uploader("Upload Master Excel (.xlsx)", type=["xlsx"])
         if file_admin and st.button("🚀 Publish ke Semua Toko"):
-            with st.spinner("Sedang memproses upload..."):
-                # Simpan ke Cloudinary sebagai RAW
+            with st.spinner("Sedang mengirim file ke server Cloudinary..."):
+                # Menambahkan ekstensi .xlsx pada public_id adalah KUNCI
                 cloudinary.uploader.upload(
                     file_admin, 
                     resource_type="raw", 
-                    public_id="master_so_utama", 
+                    public_id="master_so_utama.xlsx", 
                     overwrite=True
                 )
-                st.success("✅ Berhasil Publish! Tunggu 3 detik untuk sinkronisasi...")
-                time.sleep(3) # Beri waktu Cloudinary bernafas
+                st.success("✅ Berhasil Publish! Tunggu 3 detik...")
+                time.sleep(3)
                 st.rerun()
 
         st.divider()
 
         # --- DOWNLOAD REKAP ---
-        st.subheader("2. Download Data Master Saat Ini")
+        st.subheader("2. Download Data Master Aktif")
         df_admin = load_data_from_cloud()
         if df_admin is not None:
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
                 df_admin.to_excel(writer, index=False)
             st.download_button(
-                label="📥 Download Excel Master (Update)",
+                label="📥 Download Excel Master Sekarang",
                 data=buf.getvalue(),
-                file_name=f"Master_Update_{int(time.time())}.xlsx",
+                file_name="Master_SO_Live.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.info("Belum ada data master di server atau sedang loading. Silakan refresh halaman.")
+            st.info("Status: File master belum tersedia di Cloudinary. Silakan Upload di atas.")
 
 # ==========================================
 #              HALAMAN TOKO
@@ -134,15 +142,14 @@ elif st.session_state.menu_active == "INPUT_TOKO":
 
     st.header("📋 Input Data Toko")
     
-    # MUAT DATA DARI CLOUD
+    # LOAD DATA DARI CLOUD
     df_global = load_data_from_cloud()
     
     if df_global is None:
-        st.warning("⚠️ Data belum tersedia di server. Pastikan Admin sudah klik 'Publish'.")
-        if st.button("🔄 Refresh Data"):
+        st.warning("⚠️ Data belum di-Publish oleh Admin. Silakan hubungi Admin.")
+        if st.button("🔄 Coba Muat Ulang Data"):
             st.rerun()
     else:
-        # Tampilan Input Toko (Lebih Ringkas)
         col_t1, col_t2 = st.columns([1, 4])
         with col_t1:
             toko_id = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="F2AA").upper()
@@ -151,16 +158,15 @@ elif st.session_state.menu_active == "INPUT_TOKO":
             filtered = df_global[df_global['toko'].astype(str).str.contains(toko_id)].copy()
             
             if filtered.empty:
-                st.error(f"Data Toko {toko_id} Tidak Ditemukan!")
+                st.error(f"Kode Toko {toko_id} tidak ditemukan dalam database!")
             else:
                 st.subheader(f"🏠 Toko: {toko_id}")
                 
-                # Bersihkan kolom lama
+                # --- BERSIHKAN KOLOM ---
                 for c in ["sls+fisik", "ket input", "selisih"]:
                     if c in filtered.columns:
                         filtered = filtered.drop(columns=[c])
                 
-                # Inisialisasi kolom baru
                 filtered["sls+fisik"] = 0
                 filtered["ket input"] = "tidak input"
                 filtered["selisih"] = 0
@@ -174,7 +180,7 @@ elif st.session_state.menu_active == "INPUT_TOKO":
                     disabled=disabled,
                     hide_index=True,
                     use_container_width=True,
-                    key=f"ed_v2_{toko_id}"
+                    key=f"ed_final_{toko_id}"
                 )
 
                 # --- RUMUS REAL-TIME ---
@@ -185,14 +191,14 @@ elif st.session_state.menu_active == "INPUT_TOKO":
                 edited['sls+fisik'] = s_sales + s_fisik
                 edited['selisih'] = edited['sls+fisik'] - s_lpp
                 
-                # Logika Ket Input (Update Otomatis)
+                # Update Keterangan
                 edited['ket input'] = [
                     "input" if pd.notnull(s) and pd.notnull(f) else "tidak input" 
                     for s, f in zip(edited['query sales hari H'], edited['jml fisik'])
                 ]
 
                 st.divider()
-                st.write("### 📝 Preview Hasil Perhitungan")
+                st.write("### 📝 Review Hasil Perhitungan")
                 st.dataframe(edited, use_container_width=True, hide_index=True)
 
                 if st.button("🚀 Simpan & Kirim Laporan"):
