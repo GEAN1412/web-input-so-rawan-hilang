@@ -34,8 +34,7 @@ def get_wita_time(utc_dt_str):
 
 def get_last_update_master():
     try:
-        # Panggil API secara langsung untuk menghindari cache
-        res = cloudinary.api.resource("master_so_utama.xlsx", resource_type="raw", cache_control="no-cache")
+        res = cloudinary.api.resource("master_so_utama.xlsx", resource_type="raw")
         return get_wita_time(res['created_at'])
     except:
         return "Belum ada data"
@@ -57,7 +56,7 @@ def get_last_user_input():
         return "-"
 
 def load_excel_from_cloud(public_id):
-    """Memuat file Excel dari Cloudinary dengan Anti-Cache keras"""
+    """Memuat file Excel dari Cloudinary dengan Anti-Cache"""
     try:
         url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{int(time.time())}/{public_id}"
         resp = requests.get(url, timeout=15)
@@ -82,7 +81,7 @@ def confirm_submit_dialog(data_toko, toko_code):
                 buffer, resource_type="raw", 
                 public_id=f"rekap_harian_toko/Hasil_Toko_{toko_code}.xlsx", 
                 overwrite=True,
-                invalidate=True # Paksa Cloudinary hapus cache lama
+                invalidate=True
             )
             st.success(f"✅ Berhasil Tersimpan!")
             time.sleep(2)
@@ -137,7 +136,7 @@ elif st.session_state.page == "ADMIN":
                 st.error("Password Salah!")
     else:
         st.divider()
-        st.subheader("📊 Status Data Live")
+        st.subheader("📊 Status Data Live (WITA)")
         c_up1, c_up2 = st.columns(2)
         with c_up1:
             st.metric("Terakhir Master Diupload", get_last_update_master())
@@ -166,11 +165,10 @@ elif st.session_state.page == "ADMIN":
                     try:
                         res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="rekap_harian_toko/")
                         for r in res.get('resources', []):
-                            # Ambil nama file tanpa ekstensi untuk folder
                             store_df = pd.read_excel(r['secure_url'])
-                            join_key = 'plu' if 'plu' in store_df.columns else 'gab'
+                            join_key = 'Prdcd' if 'Prdcd' in store_df.columns else 'Prdcd'
                             for _, row in store_df.iterrows():
-                                mask = (master_df[join_key] == row[join_key]) & (master_df['toko'].astype(str) == str(row['toko']))
+                                mask = (master_df[join_key] == row[join_key]) & (master_df['Toko'].astype(str) == str(row['Toko']))
                                 if mask.any():
                                     master_df.loc[mask, store_df.columns] = row.values
                         
@@ -192,11 +190,11 @@ elif st.session_state.page == "USER":
         st.session_state.toko_cari = ""
         st.rerun()
 
-    st.caption(f"Update Master: {get_last_update_master()}")
+    st.caption(f"Update Master (WITA): {get_last_update_master()}")
 
     c_in, c_bt = st.columns([3, 1])
     with c_in:
-        t_id = st.text_input("📍 Kode Toko (4 Digit):", max_chars=4).upper()
+        t_id = st.text_input("📍 Masukkan Kode Toko (4 Digit):", max_chars=4).upper()
     with c_bt:
         st.write("##")
         btn_cari = st.button("🔍 Cari Data", use_container_width=True)
@@ -205,46 +203,44 @@ elif st.session_state.page == "USER":
         if t_id:
             st.session_state.toko_cari = t_id
             
-            # --- CEK DATA PERSISTENCE ---
-            # Cari apakah toko sudah pernah input sebelumnya
-            user_saved_file = f"rekap_harian_toko/Hasil_Toko_{st.session_state.toko_cari}.xlsx"
-            data_to_show = load_excel_from_cloud(user_saved_file)
+            # Cek apakah sudah pernah input hari ini
+            user_file = f"rekap_harian_toko/Hasil_Toko_{st.session_state.toko_cari}.xlsx"
+            data_show = load_excel_from_cloud(user_file)
             
-            # Jika belum pernah input, baru ambil dari master harian
-            if data_to_show is None:
-                df_master = load_excel_from_cloud("master_so_utama.xlsx")
-                if df_master is not None:
-                    data_to_show = df_master[df_master['toko'].astype(str).str.contains(st.session_state.toko_cari)].copy()
+            if data_show is None:
+                # Ambil dari master
+                df_m = load_excel_from_cloud("master_so_utama.xlsx")
+                if df_m is not None:
+                    data_show = df_m[df_m['Toko'].astype(str).str.contains(st.session_state.toko_cari)].copy()
             
-            if data_to_show is not None and not data_to_show.empty:
+            if data_show is not None and not data_show.empty:
                 st.subheader(f"🏠 Toko: {st.session_state.toko_cari}")
                 
-                # Pastikan kolom kalkulasi ada
-                for c in ["sls+fisik", "ket input", "selisih"]:
-                    if c not in data_to_show.columns:
-                        data_to_show[c] = 0 if c != "ket input" else "tidak input"
+                # Setup kolom perhitungan
+                for c in ["Query Sales", "Jml Fisik", "Selisih"]:
+                    if c not in data_show.columns:
+                        data_show[c] = 0
 
-                # EDITOR
+                # --- DATA EDITOR ---
+                # Editable hanya Query Sales & Jml Fisik
                 edited = st.data_editor(
-                    data_to_show,
-                    disabled=[c for c in data_to_show.columns if c not in ["query sales hari H", "jml fisik"]],
+                    data_show,
+                    disabled=[c for c in data_show.columns if c not in ["Query Sales", "Jml Fisik"]],
                     hide_index=True, use_container_width=True, key=f"ed_{st.session_state.toko_cari}"
                 )
 
-                # RUMUS
-                s_sales = pd.to_numeric(edited['query sales hari H'], errors='coerce').fillna(0)
-                s_fisik = pd.to_numeric(edited['jml fisik'], errors='coerce').fillna(0)
-                s_lpp   = pd.to_numeric(edited['stok lpp h-1'], errors='coerce').fillna(0)
+                # --- LOGIKA RUMUS ---
+                sales = pd.to_numeric(edited['Query Sales'], errors='coerce').fillna(0)
+                fisik = pd.to_numeric(edited['Jml Fisik'], errors='coerce').fillna(0)
+                stok_h1 = pd.to_numeric(edited['Stok H-1'], errors='coerce').fillna(0)
 
-                edited['sls+fisik'] = s_sales + s_fisik
-                edited['selisih'] = edited['sls+fisik'] - s_lpp
-                edited['ket input'] = ["input" if pd.notnull(s) and pd.notnull(f) else "tidak input" 
-                                       for s, f in zip(edited['query sales hari H'], edited['jml fisik'])]
+                # Rumus: Selisih = (Query Sales + Jml Fisik) - Stok H-1
+                edited['Selisih'] = (sales + fisik) - stok_h1
 
-                st.write("### 📝 Preview Kalkulasi:")
+                st.write("### 📝 Preview Hasil Kalkulasi:")
                 st.dataframe(edited, use_container_width=True, hide_index=True)
 
-                if st.button("🚀 Submit Laporan", type="primary", use_container_width=True):
+                if st.button("🚀 Submit & Simpan Laporan", type="primary", use_container_width=True):
                     confirm_submit_dialog(edited, st.session_state.toko_cari)
             else:
                 st.error("Data toko tidak ditemukan.")
