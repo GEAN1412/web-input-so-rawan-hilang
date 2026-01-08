@@ -44,11 +44,19 @@ def load_excel_from_cloud(public_id):
         resp = requests.get(url, timeout=15)
         if resp.status_code == 200:
             df = pd.read_excel(io.BytesIO(resp.content))
-            df.columns = [str(c).strip() for c in df.columns]
+            df.columns = [str(c).strip() for c in df.columns] # Bersihkan spasi di header
             return df
     except:
         return None
     return None
+
+def find_join_key(df):
+    """Mencari kolom kunci secara otomatis (Prdcd, PLU, atau Gab)"""
+    possible_keys = ['prdcd', 'plu', 'gab', 'prd cd']
+    for col in df.columns:
+        if col.lower() in possible_keys:
+            return col
+    return df.columns[2] # Fallback ke kolom ke-3 jika tidak ketemu
 
 # --- 3. DIALOG KONFIRMASI ---
 @st.dialog("Konfirmasi Simpan Data")
@@ -112,29 +120,46 @@ elif st.session_state.page == "ADMIN":
         f_admin = st.file_uploader("Upload Master Excel (.xlsx)", type=["xlsx"])
         if f_admin and st.button("🚀 Publish Master Baru"):
             cloudinary.uploader.upload(f_admin, resource_type="raw", public_id="master_so_utama.xlsx", overwrite=True, invalidate=True)
-            st.success("✅ Master Berhasil Terbit! Format baru sekarang aktif."); time.sleep(2); st.rerun()
+            st.success("✅ Master Berhasil Terbit!"); time.sleep(2); st.rerun()
 
         st.divider()
         if st.button("🔄 Gabungkan & Download Rekap Final"):
-            m_df = load_excel_from_cloud("master_so_utama.xlsx")
-            if m_df is not None:
-                try:
-                    res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="rekap_harian_toko/")
-                    for r in res.get('resources', []):
-                        s_df = pd.read_excel(r['secure_url'])
-                        s_df.columns = [str(c).strip() for c in s_df.columns]
-                        # Join menggunakan kolom Prdcd
-                        k = 'Prdcd' if 'Prdcd' in s_df.columns else m_df.columns[2]
-                        for _, row in s_df.iterrows():
-                            mask = (m_df[k] == row[k]) & (m_df[m_df.columns[0]].astype(str) == str(row[s_df.columns[0]]))
-                            if mask.any():
-                                # Ambil hanya kolom yang ada di master
-                                cols_to_use = [c for c in s_df.columns if c in m_df.columns]
-                                m_df.loc[mask, cols_to_use] = row[cols_to_use].values
-                    buf = io.BytesIO()
-                    with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                    st.download_button("📥 Download Hasil", buf.getvalue(), "Rekap_Final.xlsx")
-                except Exception as e: st.error(f"Gagal gabung: {e}")
+            with st.spinner("Sedang menggabungkan data..."):
+                m_df = load_excel_from_cloud("master_so_utama.xlsx")
+                if m_df is not None:
+                    try:
+                        # Cari kolom kunci di Master
+                        m_key = find_join_key(m_df)
+                        m_toko_col = m_df.columns[0]
+                        
+                        res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="rekap_harian_toko/")
+                        count = 0
+                        for r in res.get('resources', []):
+                            s_df = pd.read_excel(r['secure_url'])
+                            s_df.columns = [str(c).strip() for c in s_df.columns]
+                            
+                            # Cari kolom kunci di file Toko
+                            s_key = find_join_key(s_df)
+                            s_toko_col = s_df.columns[0]
+                            
+                            for _, row in s_df.iterrows():
+                                mask = (m_df[m_key].astype(str) == str(row[s_key])) & (m_df[m_toko_col].astype(str) == str(row[s_toko_col]))
+                                if mask.any():
+                                    # Update hanya kolom yang ada di kedua file
+                                    cols_to_update = [c for c in s_df.columns if c in m_df.columns]
+                                    m_df.loc[mask, cols_to_update] = row[cols_to_update].values
+                            count += 1
+                        
+                        if count == 0:
+                            st.warning("Belum ada data toko yang masuk.")
+                        else:
+                            buf = io.BytesIO()
+                            with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
+                            st.download_button(f"📥 Download Hasil ({count} Toko)", buf.getvalue(), "Rekap_Final.xlsx")
+                    except Exception as e: 
+                        st.error(f"Gagal gabung: Pastikan kolom Master & Input Toko konsisten. Error: {e}")
+                else:
+                    st.error("Master data tidak ditemukan di cloud.")
 
 # ==========================================
 #              HALAMAN USER (TOKO)
@@ -152,50 +177,41 @@ elif st.session_state.page == "USER":
     if cb.button("🔍 Cari Data") or st.session_state.toko_cari:
         if t_id:
             st.session_state.toko_cari = t_id
-            
-            # 1. LOAD MASTER (SUMBER FORMAT TERBARU)
             df_master = load_excel_from_cloud("master_so_utama.xlsx")
             
             if df_master is not None:
                 col_toko = df_master.columns[0]
                 master_toko = df_master[df_master[col_toko].astype(str).str.contains(st.session_state.toko_cari)].copy()
                 
-                # 2. LOAD SIMPANAN TOKO (JIKA ADA)
+                # Load simpanan toko
                 u_file = f"rekap_harian_toko/Hasil_Toko_{st.session_state.toko_cari}.xlsx"
                 df_user_save = load_excel_from_cloud(u_file)
                 
-                # 3. LOGIKA VALIDASI FORMAT (FORCE NEW FORMAT)
-                if df_user_save is not None:
-                    # Cek apakah jumlah kolom simpanan lama sama dengan master baru
-                    if list(df_user_save.columns) == list(df_master.columns):
-                        data_show = df_user_save # Format sama, pakai data lama
-                    else:
-                        st.info("🔄 Format master baru dideteksi. Mengupdate tampilan...")
-                        data_show = master_toko # Format beda, paksa pakai format master baru
+                # Validasi format
+                if df_user_save is not None and list(df_user_save.columns) == list(df_master.columns):
+                    data_show = df_user_save
                 else:
-                    data_show = master_toko # Belum ada simpanan, pakai master
+                    data_show = master_toko
                 
                 if not data_show.empty:
                     st.subheader(f"🏠 Toko: {st.session_state.toko_cari}")
                     
-                    # Identifikasi kolom secara dinamis (Case Insensitive)
+                    # Identifikasi kolom dinamis
                     col_stok = next((c for c in data_show.columns if 'stok' in c.lower()), None)
                     col_sales = next((c for c in data_show.columns if 'sales' in c.lower()), 'Query Sales')
                     col_fisik = next((c for c in data_show.columns if 'fisik' in c.lower()), 'Jml Fisik')
                     col_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
 
-                    # Pastikan kolom hitung tersedia
                     for c_name in [col_sales, col_fisik, col_selisih]:
                         if c_name not in data_show.columns: data_show[c_name] = 0
 
-                    # --- DATA EDITOR ---
                     edited = st.data_editor(
                         data_show,
                         disabled=[c for c in data_show.columns if c not in [col_sales, col_fisik]],
-                        hide_index=True, use_container_width=True, key=f"ed_v3_{st.session_state.toko_cari}"
+                        hide_index=True, use_container_width=True, key=f"ed_v4_{st.session_state.toko_cari}"
                     )
 
-                    # --- RUMUS OTOMATIS ---
+                    # RUMUS
                     val_s = pd.to_numeric(edited[col_sales], errors='coerce').fillna(0)
                     val_f = pd.to_numeric(edited[col_fisik], errors='coerce').fillna(0)
                     if col_stok:
@@ -209,5 +225,3 @@ elif st.session_state.page == "USER":
                         confirm_submit_dialog(edited, st.session_state.toko_cari)
                 else:
                     st.error("Data toko tidak ditemukan.")
-            else:
-                st.error("Admin belum upload Master Data.")
