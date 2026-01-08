@@ -24,7 +24,6 @@ st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 # --- 2. FUNGSI PENDUKUNG ---
 
 def load_excel_from_cloud(public_id):
-    """Memuat Excel dari Cloudinary berdasarkan ID"""
     try:
         url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{int(time.time())}/{public_id}"
         resp = requests.get(url, timeout=10)
@@ -52,10 +51,9 @@ def confirm_submit_dialog(data_toko, toko_code, date_str):
             data_toko.to_excel(writer, index=False)
         buffer.seek(0)
         try:
-            # File disimpan sesuai tanggal
             public_id = f"so_rawan_hilang/rekap/{date_str}/Hasil_{toko_code}.xlsx"
             cloudinary.uploader.upload(buffer, resource_type="raw", public_id=public_id, overwrite=True, invalidate=True)
-            st.success("✅ Tersimpan!")
+            st.success("✅ Berhasil Tersimpan ke Cloud!")
             time.sleep(2)
             st.rerun()
         except Exception as e:
@@ -64,13 +62,14 @@ def confirm_submit_dialog(data_toko, toko_code, date_str):
 # --- 4. SISTEM MENU ---
 if 'page' not in st.session_state: st.session_state.page = "HOME"
 if 'admin_auth' not in st.session_state: st.session_state.admin_auth = False
+# Session state untuk menyimpan hasil perhitungan sementara
+if 'preview_data' not in st.session_state: st.session_state.preview_data = None
 
 # ==========================================
 #              HALAMAN UTAMA
 # ==========================================
 if st.session_state.page == "HOME":
     st.title("📑 Sistem SO Rawan Hilang")
-    st.write("Sistem Operasional Berbasis Tanggal")
     st.divider()
     c1, c2 = st.columns(2)
     if c1.button("🏪 MENU INPUT TOKO", use_container_width=True, type="primary"):
@@ -93,27 +92,26 @@ elif st.session_state.page == "ADMIN":
             if pw == "icnkl034": st.session_state.admin_auth = True; st.rerun()
             else: st.error("Salah!")
     else:
-        tab1, tab2 = st.tabs(["📤 Upload & Download", "🗑️ Manajemen File Cloud"])
-
+        tab1, tab2 = st.tabs(["📤 Upload & Download", "🗑️ Manajemen File"])
+        
         with tab1:
-            st.subheader("Upload Master Baru")
-            u_date = st.date_input("Pilih Tanggal Berlaku Master:", datetime.now(), key="u_date")
-            date_str = u_date.strftime("%Y-%m-%d")
-            f_admin = st.file_uploader("Upload File Excel", type=["xlsx"])
+            st.subheader("Upload Master Harian")
+            u_date = st.date_input("Tanggal Master:", datetime.now())
+            d_str = u_date.strftime("%Y-%m-%d")
+            f_admin = st.file_uploader("Pilih Excel", type=["xlsx"])
             if f_admin and st.button("🚀 Publish Master"):
-                with st.spinner("Publishing..."):
-                    p_id = f"so_rawan_hilang/master/master_{date_str}.xlsx"
-                    cloudinary.uploader.upload(f_admin, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
-                    st.success(f"✅ Master {date_str} Aktif!")
+                p_id = f"so_rawan_hilang/master/master_{d_str}.xlsx"
+                cloudinary.uploader.upload(f_admin, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
+                st.success(f"✅ Master {d_str} Berhasil di-Upload!")
 
             st.divider()
-            st.subheader("Tarik Hasil Input")
-            d_date = st.date_input("Pilih Tanggal Rekap:", datetime.now(), key="d_date")
-            d_date_str = d_date.strftime("%Y-%m-%d")
+            st.subheader("Tarik Rekap Toko")
+            r_date = st.date_input("Pilih Tanggal Laporan:", datetime.now())
+            r_str = r_date.strftime("%Y-%m-%d")
             if st.button("🔄 Gabung & Download"):
-                m_df = load_excel_from_cloud(f"so_rawan_hilang/master/master_{d_date_str}.xlsx")
+                m_df = load_excel_from_cloud(f"so_rawan_hilang/master/master_{r_str}.xlsx")
                 if m_df is not None:
-                    res = cloudinary.api.resources(resource_type="raw", type="upload", prefix=f"so_rawan_hilang/rekap/{d_date_str}/")
+                    res = cloudinary.api.resources(resource_type="raw", type="upload", prefix=f"so_rawan_hilang/rekap/{r_str}/")
                     count = 0
                     for r in res.get('resources', []):
                         s_df = pd.read_excel(r['secure_url'])
@@ -127,13 +125,11 @@ elif st.session_state.page == "ADMIN":
                         count += 1
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                    st.download_button(f"📥 Download Rekap {d_date_str}", buf.getvalue(), f"so rawan hilang {d_date_str}.xlsx")
-                else: st.error("Master tanggal tersebut tidak ditemukan.")
+                    st.download_button(f"📥 Download Rekap {r_str}", buf.getvalue(), f"rekap_{r_str}.xlsx")
+                else: st.error("Master tanggal tsb tidak ada.")
 
         with tab2:
-            st.subheader("Hapus File di Cloudinary")
-            st.write("Gunakan menu ini untuk membersihkan file lama agar tidak penuh.")
-            if st.button("📁 Lihat Semua File Master"):
+            if st.button("📁 Cek Daftar Master"):
                 files = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/master/")
                 for f in files.get('resources', []):
                     c1, c2 = st.columns([3, 1])
@@ -147,9 +143,11 @@ elif st.session_state.page == "ADMIN":
 # ==========================================
 elif st.session_state.page == "USER":
     if st.button("🚪 Logout"):
-        st.session_state.page = "HOME"; st.rerun()
+        st.session_state.page = "HOME"
+        st.session_state.preview_data = None
+        st.rerun()
 
-    st.header("📋 Input Toko")
+    st.header("📋 Input Data Toko")
     col_d, col_t, col_b = st.columns([2, 2, 1])
     with col_d:
         user_date = st.date_input("Pilih Tanggal:", datetime.now())
@@ -157,48 +155,69 @@ elif st.session_state.page == "USER":
         t_id = st.text_input("📍 Kode Toko:", max_chars=4).upper()
     with col_b:
         st.write("##")
-        btn_cari = st.button("🔍 Cari", use_container_width=True)
+        if st.button("🔍 Cari Data", use_container_width=True):
+            st.session_state.preview_data = None # Reset preview saat cari baru
+            st.session_state.trigger_cari = True
 
-    if btn_cari and t_id:
-        date_str = user_date.strftime("%Y-%m-%d")
-        # 1. Load Master Tanggal Terpilih
-        df_master = load_excel_from_cloud(f"so_rawan_hilang/master/master_{date_str}.xlsx")
+    if t_id:
+        d_str = user_date.strftime("%Y-%m-%d")
+        df_master = load_excel_from_cloud(f"so_rawan_hilang/master/master_{d_str}.xlsx")
         
         if df_master is not None:
-            # 2. Load Hasil Toko Tanggal Terpilih
-            u_file = f"so_rawan_hilang/rekap/{date_str}/Hasil_{t_id}.xlsx"
+            u_file = f"so_rawan_hilang/rekap/{d_str}/Hasil_{t_id}.xlsx"
             df_user = load_excel_from_cloud(u_file)
             
+            # Filter master untuk toko ini
             master_filtered = df_master[df_master[df_master.columns[0]].astype(str).str.contains(t_id)].copy()
-            data_show = df_user if df_user is not None else master_filtered
+            data_to_edit = df_user if df_user is not None else master_filtered
 
-            if not data_show.empty:
-                st.subheader(f"🏠 Toko: {t_id} | 📅 {date_str}")
-                
-                # Dinamis Kolom
-                c_stok = next((c for c in data_show.columns if 'stok' in c.lower()), None)
-                c_sales = next((c for c in data_show.columns if 'sales' in c.lower()), 'Query Sales')
-                c_fisik = next((c for c in data_show.columns if 'fisik' in c.lower()), 'Jml Fisik')
-                c_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
+            if not data_to_edit.empty:
+                st.subheader(f"🏠 Toko: {t_id} | 📅 {d_str}")
+                st.info("💡 Isi data di bawah, lalu klik 'Update Selisih' untuk melihat hasil.")
 
-                for cn in [c_sales, c_fisik, c_selisih]:
-                    if cn not in data_show.columns: data_show[cn] = 0
+                # Kolom Dinamis
+                c_stok = next((c for c in data_to_edit.columns if 'stok' in c.lower()), 'Stok H-1')
+                c_sales = next((c for c in data_to_edit.columns if 'sales' in c.lower()), 'Query Sales')
+                c_fisik = next((c for c in data_to_edit.columns if 'fisik' in c.lower()), 'Jml Fisik')
+                c_selisih = next((c for c in data_to_edit.columns if 'selisih' in c.lower()), 'Selisih')
 
-                # --- EDITOR ---
-                edited = st.data_editor(
-                    data_show,
-                    disabled=[c for c in data_show.columns if c not in [c_sales, c_fisik]],
-                    hide_index=True, use_container_width=True, key=f"ed_{date_str}_{t_id}"
+                # TAMPILAN DATA EDITOR (Hanya Input, Tidak Ada Rumus Live)
+                edited_df = st.data_editor(
+                    data_to_edit,
+                    disabled=[c for c in data_to_edit.columns if c not in [c_sales, c_fisik]],
+                    hide_index=True, use_container_width=True, key=f"editor_{d_str}_{t_id}"
                 )
 
-                # --- RUMUS OTOMATIS (Langsung di Editor) ---
-                vs = pd.to_numeric(edited[c_sales], errors='coerce').fillna(0)
-                vf = pd.to_numeric(edited[c_fisik], errors='coerce').fillna(0)
-                if c_stok:
-                    vh = pd.to_numeric(edited[c_stok], errors='coerce').fillna(0)
-                    edited[c_selisih] = (vs + vf) - vh
+                # TOMBOL AKSI
+                col_btn1, col_btn2 = st.columns(2)
+                
+                with col_btn1:
+                    if st.button("🔄 Update / Hitung Selisih", use_container_width=True):
+                        # Jalankan Rumus secara manual
+                        vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
+                        vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
+                        vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
+                        
+                        edited_df[c_selisih] = (vs + vf) - vh
+                        # Simpan ke session state agar tampil di bawah
+                        st.session_state.preview_data = edited_df
+                        st.success("Perhitungan diperbarui! Silakan cek tabel preview di bawah.")
 
-                if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
-                    confirm_submit_dialog(edited, t_id, date_str)
-            else: st.error("Data toko tidak ketemu.")
-        else: st.error(f"Maaf, Admin belum upload Master untuk tanggal {date_str}")
+                with col_btn2:
+                    if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
+                        # Jika user belum klik update, kita hitung sekali lagi sebelum simpan
+                        vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
+                        vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
+                        vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
+                        edited_df[c_selisih] = (vs + vf) - vh
+                        
+                        confirm_submit_dialog(edited_df, t_id, d_str)
+
+                # TABEL PREVIEW HASIL (Hanya muncul jika tombol Update diklik)
+                if st.session_state.preview_data is not None:
+                    st.divider()
+                    st.write("### 📊 Preview Hasil Perhitungan")
+                    st.dataframe(st.session_state.preview_data, use_container_width=True, hide_index=True)
+            
+            else: st.error("Toko tidak ditemukan.")
+        else: st.error(f"Admin belum upload Master untuk tanggal {d_str}")
