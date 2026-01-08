@@ -4,6 +4,7 @@ import cloudinary
 import cloudinary.uploader
 import io
 import requests
+import time
 
 # --- 1. KONFIGURASI CLOUDINARY ---
 try:
@@ -14,25 +15,24 @@ try:
       secure = True
     )
 except:
-    st.error("Konfigurasi Cloudinary di Secrets belum lengkap!")
+    st.error("Konfigurasi Secrets Cloudinary tidak ditemukan!")
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
-# --- 2. FUNGSI LOAD DATA DARI CLOUD (SINKRONISASI) ---
+# --- 2. FUNGSI LOAD DATA (DIPERBAIKI) ---
 def load_data_from_cloud():
-    """Mengambil file master_so_utama dari Cloudinary agar semua user melihat data yang sama"""
+    """Fungsi untuk mengambil file master dari Cloudinary dengan sistem Anti-Cache"""
     try:
-        # Generate URL untuk file raw di Cloudinary
-        file_url = cloudinary.utils.cloudinary_url("master_so_utama", resource_type="raw")[0]
-        # Berikan timestamp unik agar browser tidak mengambil cache lama
-        import time
-        file_url += f"?t={int(time.time())}"
+        cloud_name = st.secrets["cloud_name"]
+        # URL Langsung ke folder raw Cloudinary
+        # Menggunakan timestamp (?t=) agar file yang diambil selalu yang TERBARU
+        url = f"https://res.cloudinary.com/{cloud_name}/raw/upload/v{int(time.time())}/master_so_utama"
         
-        response = requests.get(file_url)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
             return pd.read_excel(io.BytesIO(response.content))
         return None
-    except:
+    except Exception as e:
         return None
 
 # --- 3. DIALOG KONFIRMASI SIMPAN ---
@@ -40,7 +40,6 @@ def load_data_from_cloud():
 def confirm_submit_dialog(data_toko, toko_code):
     st.warning(f"⚠️ Apakah input data Toko {toko_code} sudah benar?")
     if st.button("Ya, Submit Sekarang"):
-        # Proses simpan hasil inputan toko ke Cloudinary dengan nama file toko masing-masing
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             data_toko.to_excel(writer, index=False)
@@ -56,7 +55,7 @@ def confirm_submit_dialog(data_toko, toko_code):
         except Exception as e:
             st.error(f"Gagal simpan: {e}")
 
-# --- 4. SISTEM NAVIGASI ---
+# --- 4. NAVIGASI ---
 if 'menu_active' not in st.session_state:
     st.session_state.menu_active = "HOME"
 
@@ -95,12 +94,17 @@ elif st.session_state.menu_active == "ADMIN":
         st.subheader("1. Upload & Publish Data Baru")
         file_admin = st.file_uploader("Upload Master Excel (.xlsx)", type=["xlsx"])
         if file_admin and st.button("🚀 Publish ke Semua Toko"):
-            with st.spinner("Sedang memproses..."):
+            with st.spinner("Sedang memproses upload..."):
+                # Simpan ke Cloudinary sebagai RAW
                 cloudinary.uploader.upload(
-                    file_admin, resource_type="raw", 
-                    public_id="master_so_utama", overwrite=True
+                    file_admin, 
+                    resource_type="raw", 
+                    public_id="master_so_utama", 
+                    overwrite=True
                 )
-                st.success("✅ Berhasil Publish! Toko sekarang bisa mengakses data ini.")
+                st.success("✅ Berhasil Publish! Tunggu 3 detik untuk sinkronisasi...")
+                time.sleep(3) # Beri waktu Cloudinary bernafas
+                st.rerun()
 
         st.divider()
 
@@ -114,11 +118,11 @@ elif st.session_state.menu_active == "ADMIN":
             st.download_button(
                 label="📥 Download Excel Master (Update)",
                 data=buf.getvalue(),
-                file_name="Master_SO_Update.xlsx",
+                file_name=f"Master_Update_{int(time.time())}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
         else:
-            st.info("Belum ada data master di server.")
+            st.info("Belum ada data master di server atau sedang loading. Silakan refresh halaman.")
 
 # ==========================================
 #              HALAMAN TOKO
@@ -130,31 +134,33 @@ elif st.session_state.menu_active == "INPUT_TOKO":
 
     st.header("📋 Input Data Toko")
     
-    # LOAD DATA DARI CLOUD
+    # MUAT DATA DARI CLOUD
     df_global = load_data_from_cloud()
     
     if df_global is None:
-        st.warning("⚠️ Data belum di-Publish oleh Admin.")
+        st.warning("⚠️ Data belum tersedia di server. Pastikan Admin sudah klik 'Publish'.")
+        if st.button("🔄 Refresh Data"):
+            st.rerun()
     else:
+        # Tampilan Input Toko (Lebih Ringkas)
         col_t1, col_t2 = st.columns([1, 4])
         with col_t1:
             toko_id = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="F2AA").upper()
         
         if toko_id:
-            # Filter Data
             filtered = df_global[df_global['toko'].astype(str).str.contains(toko_id)].copy()
             
             if filtered.empty:
-                st.error("Data Toko Tidak Ditemukan!")
+                st.error(f"Data Toko {toko_id} Tidak Ditemukan!")
             else:
                 st.subheader(f"🏠 Toko: {toko_id}")
                 
-                # --- BERSIHKAN KOLOM SEBELUM EDITOR ---
+                # Bersihkan kolom lama
                 for c in ["sls+fisik", "ket input", "selisih"]:
                     if c in filtered.columns:
                         filtered = filtered.drop(columns=[c])
                 
-                # Inisialisasi Kolom Baru
+                # Inisialisasi kolom baru
                 filtered["sls+fisik"] = 0
                 filtered["ket input"] = "tidak input"
                 filtered["selisih"] = 0
@@ -168,11 +174,10 @@ elif st.session_state.menu_active == "INPUT_TOKO":
                     disabled=disabled,
                     hide_index=True,
                     use_container_width=True,
-                    key=f"ed_{toko_id}"
+                    key=f"ed_v2_{toko_id}"
                 )
 
                 # --- RUMUS REAL-TIME ---
-                # Konversi ke numeric agar tidak error jika ada data kosong
                 s_sales = pd.to_numeric(edited['query sales hari H'], errors='coerce').fillna(0)
                 s_fisik = pd.to_numeric(edited['jml fisik'], errors='coerce').fillna(0)
                 s_lpp   = pd.to_numeric(edited['stok lpp h-1'], errors='coerce').fillna(0)
@@ -180,7 +185,7 @@ elif st.session_state.menu_active == "INPUT_TOKO":
                 edited['sls+fisik'] = s_sales + s_fisik
                 edited['selisih'] = edited['sls+fisik'] - s_lpp
                 
-                # Update Keterangan: Jika kedua kolom ada isinya (meskipun 0)
+                # Logika Ket Input (Update Otomatis)
                 edited['ket input'] = [
                     "input" if pd.notnull(s) and pd.notnull(f) else "tidak input" 
                     for s, f in zip(edited['query sales hari H'], edited['jml fisik'])
