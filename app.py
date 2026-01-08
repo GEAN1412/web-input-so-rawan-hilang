@@ -52,8 +52,9 @@ def confirm_submit_dialog(data_toko, toko_code, date_str):
             data_toko.to_excel(writer, index=False)
         buffer.seek(0)
         try:
-            public_id = f"so_rawan_hilang/rekap/{date_str}/Hasil_{toko_code}.xlsx"
-            cloudinary.uploader.upload(buffer, resource_type="raw", public_id=public_id, overwrite=True, invalidate=True)
+            # Penting: Simpan dengan ekstensi .xlsx di public_id
+            p_id = f"so_rawan_hilang/rekap/{date_str}/Hasil_{toko_code}.xlsx"
+            cloudinary.uploader.upload(buffer, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
             st.success("✅ Berhasil Tersimpan!")
             time.sleep(1.5)
             st.rerun()
@@ -61,23 +62,26 @@ def confirm_submit_dialog(data_toko, toko_code, date_str):
             st.error(f"Gagal: {e}")
 
 @st.dialog("Hapus File Master")
-def confirm_delete_dialog(public_id):
-    st.error(f"🚨 Apakah Anda yakin ingin menghapus file ini?")
-    st.code(public_id)
-    st.write("Tindakan ini tidak dapat dibatalkan.")
+def confirm_delete_dialog(file_id):
+    st.error(f"🚨 Hapus File Master?")
+    st.info(f"ID: {file_id}")
+    st.write("Data ini akan dihapus permanen dari Cloudinary.")
     
-    if st.button("Ya, Hapus Permanen", type="primary"):
+    if st.button("Hapus Sekarang", type="primary"):
         try:
-            # Resource_type='raw' sangat penting agar Cloudinary mengenali file Excel
-            result = cloudinary.uploader.destroy(public_id, resource_type="raw", invalidate=True)
-            if result.get("result") == "ok":
-                st.success("✅ File berhasil dihapus!")
-                time.sleep(1.5)
+            # LOGIKA UTAMA: Menghapus file RAW (Excel)
+            # invalidate=True memastikan cache di server dibersihkan
+            response = cloudinary.uploader.destroy(file_id, resource_type="raw", invalidate=True)
+            
+            if response.get("result") == "ok":
+                st.success("✅ File Berhasil Dihapus!")
+                time.sleep(1)
                 st.rerun()
             else:
-                st.error(f"Gagal menghapus: {result.get('result')}")
+                st.error(f"Gagal! Respon Cloudinary: {response.get('result')}")
+                st.write("Pastikan file belum dihapus atau ID benar.")
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error Teknis: {e}")
 
 # --- 4. SISTEM MENU ---
 if 'page' not in st.session_state: st.session_state.page = "HOME"
@@ -119,6 +123,7 @@ elif st.session_state.page == "ADMIN":
             d_str = u_date.strftime("%Y-%m-%d")
             f_admin = st.file_uploader("Pilih Excel", type=["xlsx"])
             if f_admin and st.button("🚀 Publish Master"):
+                # Simpan dengan ekstensi .xlsx di public_id
                 p_id = f"so_rawan_hilang/master/master_{d_str}.xlsx"
                 cloudinary.uploader.upload(f_admin, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
                 st.success(f"✅ Master {d_str} Berhasil di-Publish!")
@@ -130,6 +135,7 @@ elif st.session_state.page == "ADMIN":
             if st.button("🔄 Gabung & Download"):
                 m_df = load_excel_from_cloud(f"so_rawan_hilang/master/master_{r_str}.xlsx")
                 if m_df is not None:
+                    # Mencari rekap di folder tanggal tersebut
                     res = cloudinary.api.resources(resource_type="raw", type="upload", prefix=f"so_rawan_hilang/rekap/{r_str}/")
                     count = 0
                     for r in res.get('resources', []):
@@ -144,23 +150,28 @@ elif st.session_state.page == "ADMIN":
                         count += 1
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                    st.download_button(f"📥 Download Rekap {r_str}", buf.getvalue(), f"rekap_{r_str}.xlsx")
+                    st.download_button(f"📥 Download Rekap {r_str} ({count} Toko)", buf.getvalue(), f"rekap_{r_str}.xlsx")
                 else: st.error("Master tanggal tsb tidak ada.")
 
         with tab2:
-            st.subheader("Daftar File Master di Cloud")
-            if st.button("📁 Cek / Refresh Daftar Master"):
-                # Menarik daftar file dari folder master
-                files = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/master/")
-                if not files.get('resources'):
-                    st.info("Tidak ada file master yang ditemukan.")
-                else:
-                    for f in files.get('resources', []):
-                        col_name, col_btn = st.columns([3, 1])
-                        col_name.write(f"📄 {f['public_id']}")
-                        # Tombol hapus memicu dialog konfirmasi
-                        if col_btn.button("🗑️ Hapus", key=f['public_id']):
-                            confirm_delete_dialog(f['public_id'])
+            st.subheader("🗑️ Hapus File Master")
+            st.write("Klik tombol cari untuk melihat daftar file master terbaru.")
+            if st.button("🔍 Tampilkan Daftar File Master"):
+                # Menarik daftar file dari Cloudinary
+                try:
+                    files = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/master/")
+                    if not files.get('resources'):
+                        st.info("Tidak ada file master yang ditemukan.")
+                    else:
+                        for f in files.get('resources', []):
+                            fid = f['public_id']
+                            c_name, c_btn = st.columns([3, 1])
+                            c_name.write(f"📄 {fid}")
+                            # Melempar ID file ke dialog konfirmasi
+                            if c_btn.button("🗑️ Hapus", key=f"del_{fid}"):
+                                confirm_delete_dialog(fid)
+                except Exception as e:
+                    st.error(f"Gagal mengambil data dari Cloudinary: {e}")
 
 # ==========================================
 #              HALAMAN USER (TOKO)
@@ -197,7 +208,7 @@ elif st.session_state.page == "USER":
             if not data_to_edit.empty:
                 st.subheader(f"🏠 Toko: {t_id} | 📅 {d_str}")
                 
-                # Dinamis Kolom
+                # Identifikasi Kolom
                 c_stok = next((c for c in data_to_edit.columns if 'stok' in c.lower()), 'Stok H-1')
                 c_sales = next((c for c in data_to_edit.columns if 'sales' in c.lower()), 'Query Sales')
                 c_fisik = next((c for c in data_to_edit.columns if 'fisik' in c.lower()), 'Jml Fisik')
