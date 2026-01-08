@@ -41,7 +41,7 @@ def find_join_key(df):
         if col.lower() in possible_keys: return col
     return df.columns[2]
 
-# --- 3. DIALOG KONFIRMASI (SIMPAN & HAPUS FOLDER) ---
+# --- 3. DIALOG KONFIRMASI (SIMPAN & HAPUS) ---
 
 @st.dialog("Konfirmasi Simpan")
 def confirm_submit_dialog(data_toko, toko_code, date_str):
@@ -52,7 +52,6 @@ def confirm_submit_dialog(data_toko, toko_code, date_str):
             data_toko.to_excel(writer, index=False)
         buffer.seek(0)
         try:
-            # PATH BARU: so_rawan_hilang/TANGGAL/Hasil_TOKO.xlsx
             p_id = f"so_rawan_hilang/{date_str}/Hasil_{toko_code}.xlsx"
             cloudinary.uploader.upload(buffer, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
             st.success(f"✅ Tersimpan di folder {date_str}!")
@@ -61,22 +60,44 @@ def confirm_submit_dialog(data_toko, toko_code, date_str):
         except Exception as e:
             st.error(f"Gagal: {e}")
 
-@st.dialog("Hapus Seluruh Data Tanggal")
-def confirm_delete_folder_dialog(folder_path):
-    st.error(f"🚨 HAPUS SELURUH DATA?")
-    st.write(f"Folder: **{folder_path}**")
-    st.write("Semua Master dan Hasil Input Toko pada tanggal ini akan dihapus permanen.")
+@st.dialog("🚨 Hapus Permanen Data Tanggal")
+def confirm_delete_folder_dialog(folder_prefix):
+    st.error(f"Apakah Anda yakin ingin menghapus seluruh data pada folder:")
+    st.info(f"📁 {folder_prefix}")
+    st.write("Tindakan ini akan menghapus Master dan semua hasil Toko secara permanen.")
     
-    if st.button("Ya, Hapus Semua", type="primary"):
-        try:
-            # 1. Hapus semua file di dalam folder tersebut
-            cloudinary.api.delete_resources_by_prefix(f"{folder_path}/", resource_type="raw")
-            # 2. Hapus folder kosongnya (Opsional di Cloudinary, biasanya otomatis bersih)
-            st.success(f"✅ Data tanggal {folder_path.split('/')[-1]} berhasil dibersihkan!")
-            time.sleep(1.5)
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error: {e}")
+    if st.button("YA, HAPUS PERMANEN", type="primary"):
+        with st.spinner("Sedang membersihkan Cloudinary..."):
+            try:
+                # 1. Cari semua file dengan prefix folder tersebut (termasuk sub-folder)
+                # Harus menggunakan resource_type="raw"
+                list_resources = cloudinary.api.resources(
+                    resource_type="raw", 
+                    type="upload", 
+                    prefix=folder_prefix
+                )
+                
+                resources = list_resources.get('resources', [])
+                
+                if not resources:
+                    st.warning("Tidak ada file ditemukan di folder ini.")
+                else:
+                    # 2. Ambil semua public_id
+                    public_ids = [res['public_id'] for res in resources]
+                    
+                    # 3. Hapus resources berdasarkan ID secara paksa
+                    # invalidate=True sangat penting agar cache di CDN hilang
+                    cloudinary.api.delete_resources(
+                        public_ids, 
+                        resource_type="raw", 
+                        invalidate=True
+                    )
+                    
+                    st.success(f"✅ Berhasil menghapus {len(public_ids)} file.")
+                    time.sleep(2)
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Terjadi kesalahan saat menghapus: {e}")
 
 # --- 4. SISTEM MENU ---
 if 'page' not in st.session_state: st.session_state.page = "HOME"
@@ -110,7 +131,7 @@ elif st.session_state.page == "ADMIN":
             if pw == "icnkl034": st.session_state.admin_auth = True; st.rerun()
             else: st.error("Salah!")
     else:
-        tab1, tab2 = st.tabs(["📤 Upload & Download", "📂 Manajemen Folder Tanggal"])
+        tab1, tab2 = st.tabs(["📤 Upload & Download", "📂 Manajemen Data Per Tanggal"])
         
         with tab1:
             st.subheader("Upload Master Harian")
@@ -118,7 +139,6 @@ elif st.session_state.page == "ADMIN":
             d_str = u_date.strftime("%Y-%m-%d")
             f_admin = st.file_uploader("Pilih Excel", type=["xlsx"])
             if f_admin and st.button("🚀 Publish ke Folder Tanggal"):
-                # PATH BARU: so_rawan_hilang/TANGGAL/Master_TANGGAL.xlsx
                 p_id = f"so_rawan_hilang/{d_str}/Master_{d_str}.xlsx"
                 cloudinary.uploader.upload(f_admin, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
                 st.success(f"✅ Master Berhasil Terbit di folder {d_str}!")
@@ -130,7 +150,6 @@ elif st.session_state.page == "ADMIN":
             if st.button("🔄 Gabung Data Toko"):
                 m_df = load_excel_from_cloud(f"so_rawan_hilang/{r_str}/Master_{r_str}.xlsx")
                 if m_df is not None:
-                    # Cari semua file Hasil_ di folder tanggal tersebut
                     res = cloudinary.api.resources(resource_type="raw", type="upload", prefix=f"so_rawan_hilang/{r_str}/Hasil_")
                     count = 0
                     for r in res.get('resources', []):
@@ -149,26 +168,29 @@ elif st.session_state.page == "ADMIN":
                 else: st.error(f"Master folder {r_str} tidak ditemukan.")
 
         with tab2:
-            st.subheader("🗑️ Bersihkan Data Per Tanggal")
-            st.write("Daftar folder tanggal yang terdeteksi di Cloudinary:")
-            if st.button("🔍 Cek Daftar Folder"):
+            st.subheader("🗑️ Hapus Data Per Tanggal")
+            st.write("Klik tombol cari untuk melihat folder yang tersimpan.")
+            if st.button("🔍 Cari Folder Tanggal"):
                 try:
-                    # Cloudinary tidak punya fungsi 'list folders' yang simpel untuk tipe raw, 
-                    # jadi kita cari prefix unik dari file master
+                    # Mengambil semua file di dalam folder utama
                     files = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/")
-                    folders = sorted(list(set([f['public_id'].rsplit('/', 1)[0] for f in files.get('resources', []) if 'Master_' in f['public_id']])))
+                    # Ekstrak nama folder (tanggal) secara unik
+                    all_paths = [f['public_id'] for f in files.get('resources', [])]
+                    # Format folder: so_rawan_hilang/YYYY-MM-DD/Master_...
+                    # Kita ambil bagian YYYY-MM-DD nya saja
+                    folders = sorted(list(set([p.split('/')[1] for p in all_paths if len(p.split('/')) > 2])))
                     
                     if not folders:
-                        st.info("Tidak ada data tanggal yang ditemukan.")
+                        st.info("Tidak ada folder tanggal yang ditemukan.")
                     else:
-                        for folder in folders:
-                            tgl_folder = folder.split('/')[-1]
+                        for f_date in folders:
+                            full_path = f"so_rawan_hilang/{f_date}"
                             c_name, c_btn = st.columns([3, 1])
-                            c_name.write(f"📁 **Tanggal: {tgl_folder}**")
-                            if c_btn.button("🗑️ Hapus Folder", key=f"del_{folder}"):
-                                confirm_delete_folder_dialog(folder)
+                            c_name.write(f"📅 **Folder Tanggal: {f_date}**")
+                            if c_btn.button("🗑️ Hapus Semua Data", key=f"del_{f_date}"):
+                                confirm_delete_folder_dialog(full_path)
                 except Exception as e:
-                    st.error(f"Gagal mengambil daftar folder: {e}")
+                    st.error(f"Gagal mengambil data: {e}")
 
 # ==========================================
 #              HALAMAN USER (TOKO)
@@ -193,11 +215,9 @@ elif st.session_state.page == "USER":
 
     if t_id:
         d_str = user_date.strftime("%Y-%m-%d")
-        # Cari master di folder tanggal
         df_master = load_excel_from_cloud(f"so_rawan_hilang/{d_str}/Master_{d_str}.xlsx")
         
         if df_master is not None:
-            # Cari hasil toko di folder tanggal yang sama
             u_file = f"so_rawan_hilang/{d_str}/Hasil_{t_id}.xlsx"
             df_user = load_excel_from_cloud(u_file)
             
@@ -226,7 +246,7 @@ elif st.session_state.page == "USER":
                         vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
                         edited_df[c_selisih] = (vs + vf) - vh
                         st.session_state.preview_data = edited_df
-                        st.success("Kalkulasi Selesai. Cek tabel di bawah.")
+                        st.success("Kalkulasi Selesai.")
 
                 with col_btn2:
                     if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
@@ -242,4 +262,4 @@ elif st.session_state.page == "USER":
                     st.dataframe(st.session_state.preview_data, use_container_width=True, hide_index=True)
             
             else: st.error("Toko tidak ditemukan.")
-        else: st.error(f"Folder tanggal {d_str} belum dibuat oleh Admin.")
+        else: st.error(f"Folder tanggal {d_str} tidak ditemukan.")
