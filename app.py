@@ -41,7 +41,8 @@ def find_join_key(df):
         if col.lower() in possible_keys: return col
     return df.columns[2]
 
-# --- 3. DIALOG KONFIRMASI ---
+# --- 3. DIALOG KONFIRMASI (SIMPAN & HAPUS) ---
+
 @st.dialog("Konfirmasi Simpan")
 def confirm_submit_dialog(data_toko, toko_code, date_str):
     st.warning(f"⚠️ Simpan data Toko {toko_code} untuk tanggal {date_str}?")
@@ -53,16 +54,34 @@ def confirm_submit_dialog(data_toko, toko_code, date_str):
         try:
             public_id = f"so_rawan_hilang/rekap/{date_str}/Hasil_{toko_code}.xlsx"
             cloudinary.uploader.upload(buffer, resource_type="raw", public_id=public_id, overwrite=True, invalidate=True)
-            st.success("✅ Berhasil Tersimpan ke Cloud!")
-            time.sleep(2)
+            st.success("✅ Berhasil Tersimpan!")
+            time.sleep(1.5)
             st.rerun()
         except Exception as e:
             st.error(f"Gagal: {e}")
 
+@st.dialog("Hapus File Master")
+def confirm_delete_dialog(public_id):
+    st.error(f"🚨 Apakah Anda yakin ingin menghapus file ini?")
+    st.code(public_id)
+    st.write("Tindakan ini tidak dapat dibatalkan.")
+    
+    if st.button("Ya, Hapus Permanen", type="primary"):
+        try:
+            # Resource_type='raw' sangat penting agar Cloudinary mengenali file Excel
+            result = cloudinary.uploader.destroy(public_id, resource_type="raw", invalidate=True)
+            if result.get("result") == "ok":
+                st.success("✅ File berhasil dihapus!")
+                time.sleep(1.5)
+                st.rerun()
+            else:
+                st.error(f"Gagal menghapus: {result.get('result')}")
+        except Exception as e:
+            st.error(f"Error: {e}")
+
 # --- 4. SISTEM MENU ---
 if 'page' not in st.session_state: st.session_state.page = "HOME"
 if 'admin_auth' not in st.session_state: st.session_state.admin_auth = False
-# Session state untuk menyimpan hasil perhitungan sementara
 if 'preview_data' not in st.session_state: st.session_state.preview_data = None
 
 # ==========================================
@@ -102,7 +121,7 @@ elif st.session_state.page == "ADMIN":
             if f_admin and st.button("🚀 Publish Master"):
                 p_id = f"so_rawan_hilang/master/master_{d_str}.xlsx"
                 cloudinary.uploader.upload(f_admin, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
-                st.success(f"✅ Master {d_str} Berhasil di-Upload!")
+                st.success(f"✅ Master {d_str} Berhasil di-Publish!")
 
             st.divider()
             st.subheader("Tarik Rekap Toko")
@@ -129,14 +148,19 @@ elif st.session_state.page == "ADMIN":
                 else: st.error("Master tanggal tsb tidak ada.")
 
         with tab2:
-            if st.button("📁 Cek Daftar Master"):
+            st.subheader("Daftar File Master di Cloud")
+            if st.button("📁 Cek / Refresh Daftar Master"):
+                # Menarik daftar file dari folder master
                 files = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/master/")
-                for f in files.get('resources', []):
-                    c1, c2 = st.columns([3, 1])
-                    c1.write(f['public_id'])
-                    if c2.button("🗑️ Hapus", key=f['public_id']):
-                        cloudinary.uploader.destroy(f['public_id'], resource_type="raw")
-                        st.rerun()
+                if not files.get('resources'):
+                    st.info("Tidak ada file master yang ditemukan.")
+                else:
+                    for f in files.get('resources', []):
+                        col_name, col_btn = st.columns([3, 1])
+                        col_name.write(f"📄 {f['public_id']}")
+                        # Tombol hapus memicu dialog konfirmasi
+                        if col_btn.button("🗑️ Hapus", key=f['public_id']):
+                            confirm_delete_dialog(f['public_id'])
 
 # ==========================================
 #              HALAMAN USER (TOKO)
@@ -156,7 +180,7 @@ elif st.session_state.page == "USER":
     with col_b:
         st.write("##")
         if st.button("🔍 Cari Data", use_container_width=True):
-            st.session_state.preview_data = None # Reset preview saat cari baru
+            st.session_state.preview_data = None
             st.session_state.trigger_cari = True
 
     if t_id:
@@ -167,57 +191,47 @@ elif st.session_state.page == "USER":
             u_file = f"so_rawan_hilang/rekap/{d_str}/Hasil_{t_id}.xlsx"
             df_user = load_excel_from_cloud(u_file)
             
-            # Filter master untuk toko ini
             master_filtered = df_master[df_master[df_master.columns[0]].astype(str).str.contains(t_id)].copy()
             data_to_edit = df_user if df_user is not None else master_filtered
 
             if not data_to_edit.empty:
                 st.subheader(f"🏠 Toko: {t_id} | 📅 {d_str}")
-                st.info("💡 Isi data di bawah, lalu klik 'Update Selisih' untuk melihat hasil.")
-
-                # Kolom Dinamis
+                
+                # Dinamis Kolom
                 c_stok = next((c for c in data_to_edit.columns if 'stok' in c.lower()), 'Stok H-1')
                 c_sales = next((c for c in data_to_edit.columns if 'sales' in c.lower()), 'Query Sales')
                 c_fisik = next((c for c in data_to_edit.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 c_selisih = next((c for c in data_to_edit.columns if 'selisih' in c.lower()), 'Selisih')
 
-                # TAMPILAN DATA EDITOR (Hanya Input, Tidak Ada Rumus Live)
+                # Editor
                 edited_df = st.data_editor(
                     data_to_edit,
                     disabled=[c for c in data_to_edit.columns if c not in [c_sales, c_fisik]],
                     hide_index=True, use_container_width=True, key=f"editor_{d_str}_{t_id}"
                 )
 
-                # TOMBOL AKSI
                 col_btn1, col_btn2 = st.columns(2)
-                
                 with col_btn1:
                     if st.button("🔄 Update / Hitung Selisih", use_container_width=True):
-                        # Jalankan Rumus secara manual
                         vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
                         vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
                         vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
-                        
                         edited_df[c_selisih] = (vs + vf) - vh
-                        # Simpan ke session state agar tampil di bawah
                         st.session_state.preview_data = edited_df
-                        st.success("Perhitungan diperbarui! Silakan cek tabel preview di bawah.")
+                        st.success("Perhitungan diperbarui! Lihat di bawah.")
 
                 with col_btn2:
                     if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
-                        # Jika user belum klik update, kita hitung sekali lagi sebelum simpan
                         vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
                         vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
                         vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
                         edited_df[c_selisih] = (vs + vf) - vh
-                        
                         confirm_submit_dialog(edited_df, t_id, d_str)
 
-                # TABEL PREVIEW HASIL (Hanya muncul jika tombol Update diklik)
                 if st.session_state.preview_data is not None:
                     st.divider()
                     st.write("### 📊 Preview Hasil Perhitungan")
                     st.dataframe(st.session_state.preview_data, use_container_width=True, hide_index=True)
             
             else: st.error("Toko tidak ditemukan.")
-        else: st.error(f"Admin belum upload Master untuk tanggal {d_str}")
+        else: st.error(f"Master tanggal {d_str} tidak ditemukan.")
