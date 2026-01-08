@@ -54,42 +54,34 @@ def confirm_submit_dialog(data_toko, toko_code, date_str):
         try:
             p_id = f"so_rawan_hilang/{date_str}/Hasil_{toko_code}.xlsx"
             cloudinary.uploader.upload(buffer, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
-            st.success(f"✅ Data tersimpan di cloud.")
+            st.success(f"✅ Tersimpan!")
             time.sleep(1.5)
             st.rerun()
         except Exception as e:
             st.error(f"Gagal: {e}")
 
-@st.dialog("⚠️ HAPUS FOLDER TANGGAL")
-def delete_entire_folder_dialog(folder_name):
-    st.error(f"🚨 PERINGATAN KRUSIAL!")
-    st.write(f"Anda akan menghapus **SELURUH** isi folder tanggal: **{folder_name}**")
-    st.write("Ini mencakup File Master dan semua Laporan Toko pada tanggal tersebut.")
+@st.dialog("🚨 Hapus Folder Tanggal")
+def delete_folder_dialog(folder_name):
+    st.error(f"Peringatan: Anda akan menghapus folder **{folder_name}**")
+    st.write("Semua master dan hasil input toko pada tanggal ini akan hilang.")
+    confirm = st.text_input("Ketik 'HAPUS' untuk konfirmasi:")
     
-    confirm_text = st.text_input("Ketik 'HAPUS' untuk mengonfirmasi:", "")
-    
-    if st.button("HAPUS SEKARANG", type="primary", disabled=(confirm_text != "HAPUS")):
+    if st.button("Hapus Sekarang", type="primary", disabled=(confirm != "HAPUS")):
         try:
-            full_path = f"so_rawan_hilang/{folder_name}"
-            # 1. Hapus semua file raw di dalam folder tersebut secara massal
-            cloudinary.api.delete_resources_by_prefix(full_path + "/", resource_type="raw", invalidate=True)
-            
-            # 2. Hapus folder itu sendiri secara permanen (hanya bisa jika sudah kosong)
-            # Cloudinary API delete_folder membutuhkan nama path folder
-            try:
-                cloudinary.api.delete_folder(full_path)
-            except:
-                pass # Folder kadang otomatis hilang jika isinya kosong
-                
-            st.success(f"✅ Folder {folder_name} dan isinya telah bersih!")
-            time.sleep(2)
+            full_prefix = f"so_rawan_hilang/{folder_name}/"
+            # Hapus semua resource tipe raw dengan prefix tersebut
+            cloudinary.api.delete_resources_by_prefix(full_prefix, resource_type="raw", invalidate=True)
+            st.success("✅ Folder berhasil dibersihkan!")
+            time.sleep(1.5)
             st.rerun()
         except Exception as e:
-            st.error(f"Gagal menghapus folder: {e}")
+            st.error(f"Gagal menghapus: {e}")
 
-# --- 4. SISTEM MENU ---
+# --- 4. SISTEM MENU & STATE ---
 if 'page' not in st.session_state: st.session_state.page = "HOME"
 if 'admin_auth' not in st.session_state: st.session_state.admin_auth = False
+# State untuk mengunci tampilan tabel agar tidak hilang saat Enter
+if 'search_active' not in st.session_state: st.session_state.search_active = False
 
 # ==========================================
 #              HALAMAN UTAMA
@@ -99,9 +91,11 @@ if st.session_state.page == "HOME":
     st.divider()
     c1, c2 = st.columns(2)
     if c1.button("🏪 MENU INPUT TOKO", use_container_width=True, type="primary"):
-        st.session_state.page = "USER"; st.rerun()
+        st.session_state.page = "USER"
+        st.rerun()
     if c2.button("🔑 MENU ADMIN PANEL", use_container_width=True):
-        st.session_state.page = "ADMIN"; st.rerun()
+        st.session_state.page = "ADMIN"
+        st.rerun()
 
 # ==========================================
 #              HALAMAN ADMIN
@@ -110,31 +104,35 @@ elif st.session_state.page == "ADMIN":
     hc, oc = st.columns([5, 1])
     hc.header("🔐 Admin Panel")
     if oc.button("🚪 Logout"):
-        st.session_state.admin_auth = False; st.session_state.page = "HOME"; st.rerun()
+        st.session_state.admin_auth = False
+        st.session_state.page = "HOME"
+        st.rerun()
 
     if not st.session_state.admin_auth:
         pw = st.text_input("Password Admin:", type="password")
         if st.button("Masuk"):
-            if pw == "icnkl034": st.session_state.admin_auth = True; st.rerun()
+            if pw == "icnkl034":
+                st.session_state.admin_auth = True
+                st.rerun()
             else: st.error("Salah!")
     else:
-        tab1, tab2 = st.tabs(["📤 Upload & Download", "📂 Manajemen Folder"])
+        t1, t2 = st.tabs(["📤 Upload & Download", "📂 Manajemen Data"])
         
-        with tab1:
+        with t1:
             st.subheader("Upload Master Harian")
             u_date = st.date_input("Tanggal Operasional:", datetime.now())
             d_str = u_date.strftime("%Y-%m-%d")
-            f_admin = st.file_uploader("Upload File Excel", type=["xlsx"])
-            if f_admin and st.button("🚀 Publish ke Folder"):
+            f_admin = st.file_uploader("Pilih Excel", type=["xlsx"])
+            if f_admin and st.button("🚀 Publish ke Cloud"):
                 p_id = f"so_rawan_hilang/{d_str}/Master_{d_str}.xlsx"
                 cloudinary.uploader.upload(f_admin, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
-                st.success(f"✅ Master terbit di folder {d_str}!")
+                st.success(f"✅ Terbit di folder {d_str}!")
 
             st.divider()
-            st.subheader("Tarik Laporan Gabungan")
-            r_date = st.date_input("Cek Tanggal:", datetime.now())
+            st.subheader("Tarik Rekap")
+            r_date = st.date_input("Pilih Tanggal Rekap:", datetime.now())
             r_str = r_date.strftime("%Y-%m-%d")
-            if st.button("🔄 Gabungkan Data"):
+            if st.button("🔄 Gabung Data"):
                 m_df = load_excel_from_cloud(f"so_rawan_hilang/{r_str}/Master_{r_str}.xlsx")
                 if m_df is not None:
                     res = cloudinary.api.resources(resource_type="raw", type="upload", prefix=f"so_rawan_hilang/{r_str}/Hasil_")
@@ -151,32 +149,22 @@ elif st.session_state.page == "ADMIN":
                         count += 1
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                    st.download_button(f"📥 Download Rekap ({count} Toko)", buf.getvalue(), f"rekap_{r_str}.xlsx")
-                else: st.error("Master tidak ditemukan.")
+                    st.download_button(f"📥 Download ({count} Toko)", buf.getvalue(), f"rekap_{r_str}.xlsx")
+                else: st.error("Master tdk ditemukan.")
 
-        with tab2:
-            st.subheader("🗑️ Hapus Seluruh Folder")
-            st.write("Pilih folder tanggal untuk dihapus permanen dari Cloudinary.")
-            
-            # Mengambil daftar folder secara dinamis dari Cloudinary
-            if st.button("🔍 Scan Folder Cloud"):
-                try:
-                    # Cari semua file master untuk mendapatkan list folder
-                    res_files = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/")
-                    paths = [f['public_id'] for f in res_files.get('resources', [])]
-                    # Ambil bagian tanggal dari path so_rawan_hilang/YYYY-MM-DD/...
-                    folders = sorted(list(set([p.split('/')[1] for p in paths if len(p.split('/')) > 1])))
-                    
-                    if not folders:
-                        st.info("Tidak ada folder ditemukan.")
-                    else:
-                        for f_name in folders:
-                            col_n, col_b = st.columns([3, 1])
-                            col_n.write(f"📁 Folder Tanggal: **{f_name}**")
-                            if col_b.button("🗑️ Hapus Folder", key=f"del_{f_name}"):
-                                delete_entire_folder_dialog(f_name)
-                except Exception as e:
-                    st.error(f"Error Scan: {e}")
+        with t2:
+            st.subheader("Hapus Folder Tanggal")
+            if st.button("🔍 Scan Folder"):
+                files = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/")
+                all_paths = [f['public_id'] for f in files.get('resources', [])]
+                folders = sorted(list(set([p.split('/')[1] for p in all_paths if len(p.split('/')) > 1])))
+                if not folders: st.info("Kosong.")
+                else:
+                    for f in folders:
+                        c_n, c_b = st.columns([3, 1])
+                        c_n.write(f"📁 **{f}**")
+                        if c_b.button("🗑️ Hapus", key=f"del_{f}"):
+                            delete_folder_dialog(f)
 
 # ==========================================
 #              HALAMAN USER (TOKO)
@@ -184,27 +172,37 @@ elif st.session_state.page == "ADMIN":
 elif st.session_state.page == "USER":
     if st.button("🚪 Logout"):
         st.session_state.page = "HOME"
+        st.session_state.search_active = False
         st.rerun()
 
-    st.header("📋 Input Toko")
+    st.header("📋 Input Data Toko")
     col_d, col_t, col_b = st.columns([2, 2, 1])
+    
     with col_d:
         user_date = st.date_input("Pilih Tanggal:", datetime.now())
     with col_t:
         t_id = st.text_input("📍 Kode Toko:", max_chars=4).upper()
     with col_b:
         st.write("##")
-        btn_cari = st.button("🔍 Cari Data", use_container_width=True)
+        if st.button("🔍 Cari Data", use_container_width=True):
+            if t_id:
+                st.session_state.search_active = True
+                st.session_state.active_toko = t_id
+                st.session_state.active_date = user_date.strftime("%Y-%m-%d")
+            else:
+                st.error("Isi kode toko!")
 
-    if t_id and btn_cari:
-        d_str = user_date.strftime("%Y-%m-%d")
+    # LOGIKA PENGUNCI TAMPILAN (Agar tidak reset saat Enter)
+    if st.session_state.search_active:
+        d_str = st.session_state.active_date
+        t_id = st.session_state.active_toko
+        
         df_master = load_excel_from_cloud(f"so_rawan_hilang/{d_str}/Master_{d_str}.xlsx")
         
         if df_master is not None:
             u_file = f"so_rawan_hilang/{d_str}/Hasil_{t_id}.xlsx"
             df_user = load_excel_from_cloud(u_file)
             
-            # Tentukan data mana yang ditampilkan (prioritas hasil inputan user)
             master_filtered = df_master[df_master[df_master.columns[0]].astype(str).str.contains(t_id)].copy()
             data_to_edit = df_user if df_user is not None else master_filtered
 
@@ -216,31 +214,33 @@ elif st.session_state.page == "USER":
                 c_fisik = next((c for c in data_to_edit.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 c_selisih = next((c for c in data_to_edit.columns if 'selisih' in c.lower()), 'Selisih')
 
-                # TAMPILAN EDITOR
+                # Editor
                 edited_df = st.data_editor(
                     data_to_edit,
                     disabled=[c for c in data_to_edit.columns if c not in [c_sales, c_fisik]],
                     hide_index=True, use_container_width=True, key=f"editor_{d_str}_{t_id}"
                 )
 
-                cb1, cb2 = st.columns(2)
-                with cb1:
+                c1, c2 = st.columns(2)
+                with c1:
                     if st.button("🔄 Update Selisih"):
-                        v_s = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
-                        v_f = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
-                        v_h = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
-                        edited_df[c_selisih] = (v_s + v_f) - v_h
-                        st.session_state.temp_edit = edited_df
-                        st.success("Dihitung. Cek tabel di atas.")
-                
-                with cb2:
+                        vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
+                        vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
+                        vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
+                        edited_df[c_selisih] = (vs + vf) - vh
+                        st.session_state.preview_table = edited_df
+                        st.success("Dihitung!")
+
+                with c2:
                     if st.button("🚀 Simpan", type="primary"):
-                        v_s = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
-                        v_f = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
-                        v_h = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
-                        edited_df[c_selisih] = (v_s + v_f) - v_h
+                        vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
+                        vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
+                        vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
+                        edited_df[c_selisih] = (vs + vf) - vh
                         confirm_submit_dialog(edited_df, t_id, d_str)
-            else:
-                st.error("Data toko tidak ketemu.")
-        else:
-            st.error(f"Folder tanggal {d_str} tidak ditemukan.")
+
+                if "preview_table" in st.session_state:
+                    st.divider()
+                    st.dataframe(st.session_state.preview_table, use_container_width=True, hide_index=True)
+            else: st.error("Toko tdk ada.")
+        else: st.error(f"Master {d_str} tdk ada.")
