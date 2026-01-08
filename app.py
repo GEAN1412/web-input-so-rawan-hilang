@@ -21,58 +21,27 @@ except:
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
-# --- 2. FUNGSI PENDUKUNG (HELPERS) ---
+# --- 2. FUNGSI INTI (FOLDER: so_rawan_hilang) ---
 
-def get_wita_time(utc_dt_str):
-    """Konversi waktu UTC dari Cloudinary ke WITA (UTC+8)"""
+def load_excel_with_metadata(public_id):
+    """Memuat Excel sekaligus mendapatkan waktu terakhir diupdate"""
     try:
-        dt_utc = datetime.strptime(utc_dt_str, '%Y-%m-%dT%H:%M:%SZ')
-        dt_wita = dt_utc + timedelta(hours=8)
-        return dt_wita.strftime('%H:%M:%S - %d/%m/%Y WITA')
-    except:
-        return "-"
-
-def get_last_update_master():
-    """Mengambil jam terakhir master diupload (Tanpa Cache)"""
-    try:
-        # Menambahkan random parameter untuk memaksa refresh metadata
-        res = cloudinary.api.resource("master_so_utama.xlsx", resource_type="raw", timestamp=time.time())
-        return get_wita_time(res['created_at'])
-    except:
-        return "Belum ada data"
-
-def get_last_user_input():
-    """Mengambil jam terakhir ada toko yang submit (Tanpa Cache)"""
-    try:
-        res = cloudinary.api.resources(
-            resource_type="raw", 
-            type="upload", 
-            prefix="rekap_harian_toko/", 
-            max_results=1,
-            direction="desc",
-            sort_by="created_at"
-        )
-        if res.get('resources'):
-            return get_wita_time(res['resources'][0]['created_at'])
-        return "Belum ada input"
-    except:
-        return "-"
-
-def load_excel_from_cloud(public_id):
-    """Memuat Excel dari Cloudinary dengan Anti-Cache"""
-    try:
+        # Get Metadata
+        meta = cloudinary.api.resource(public_id, resource_type="raw", cache_control="no-cache")
+        last_update = datetime.strptime(meta['created_at'], '%Y-%m-%dT%H:%M:%SZ')
+        
+        # Get Content
         url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{int(time.time())}/{public_id}"
-        resp = requests.get(url, timeout=15)
+        resp = requests.get(url, timeout=10)
         if resp.status_code == 200:
             df = pd.read_excel(io.BytesIO(resp.content))
             df.columns = [str(c).strip() for c in df.columns]
-            return df
+            return df, last_update
     except:
-        return None
-    return None
+        return None, None
+    return None, None
 
 def find_join_key(df):
-    """Mencari kolom kunci otomatis"""
     possible_keys = ['prdcd', 'plu', 'gab', 'prd cd']
     for col in df.columns:
         if col.lower() in possible_keys:
@@ -89,9 +58,10 @@ def confirm_submit_dialog(data_toko, toko_code):
             data_toko.to_excel(writer, index=False)
         buffer.seek(0)
         try:
+            # Simpan di dalam folder so_rawan_hilang/rekap_harian_toko/
             cloudinary.uploader.upload(
                 buffer, resource_type="raw", 
-                public_id=f"rekap_harian_toko/Hasil_Toko_{toko_code}.xlsx", 
+                public_id=f"so_rawan_hilang/rekap_harian_toko/Hasil_Toko_{toko_code}.xlsx", 
                 overwrite=True, invalidate=True
             )
             st.success(f"✅ Berhasil Tersimpan!")
@@ -113,6 +83,7 @@ if 'toko_cari' not in st.session_state:
 # ==========================================
 if st.session_state.page == "HOME":
     st.title("📑 Sistem SO Rawan Hilang")
+    st.write("Navigasi Operasional")
     st.divider()
     c1, c2 = st.columns(2)
     if c1.button("🏪 MENU INPUT TOKO", use_container_width=True, type="primary"):
@@ -136,28 +107,29 @@ elif st.session_state.page == "ADMIN":
             else: st.error("Password Salah!")
     else:
         st.divider()
-        # MENAMPILKAN JAM UPDATE TERBARU
-        st.subheader("📊 Status Data Live (WITA)")
-        c1, c2 = st.columns(2)
-        c1.metric("Terakhir Master Diupload", get_last_update_master())
-        c2.metric("Terakhir User Input Data", get_last_user_input())
+        st.success("🟢 Server Aktif: Menunggu aksi Admin.")
         
-        st.divider()
-        f_admin = st.file_uploader("Upload Master Excel (.xlsx)", type=["xlsx"])
-        if f_admin and st.button("🚀 Publish Master Baru"):
+        st.subheader("📤 Upload Master Harian")
+        f_admin = st.file_uploader("Upload Master Excel Baru (.xlsx)", type=["xlsx"])
+        if f_admin and st.button("🚀 Publish ke Seluruh Toko"):
             with st.spinner("Publishing..."):
-                cloudinary.uploader.upload(f_admin, resource_type="raw", public_id="master_so_utama.xlsx", overwrite=True, invalidate=True)
+                # Simpan di folder so_rawan_hilang/
+                cloudinary.uploader.upload(
+                    f_admin, resource_type="raw", 
+                    public_id="so_rawan_hilang/master_so_utama.xlsx", 
+                    overwrite=True, invalidate=True
+                )
                 st.success("✅ Master Berhasil Terbit!"); time.sleep(2); st.rerun()
 
         st.divider()
         if st.button("🔄 Gabungkan & Download Rekap Final"):
-            with st.spinner("Sedang menarik data terbaru..."):
-                m_df = load_excel_from_cloud("master_so_utama.xlsx")
+            with st.spinner("Menarik data..."):
+                m_df, _ = load_excel_with_metadata("so_rawan_hilang/master_so_utama.xlsx")
                 if m_df is not None:
                     try:
                         m_key = find_join_key(m_df)
                         m_toko_col = m_df.columns[0]
-                        res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="rekap_harian_toko/")
+                        res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/rekap_harian_toko/")
                         
                         count = 0
                         for r in res.get('resources', []):
@@ -165,24 +137,17 @@ elif st.session_state.page == "ADMIN":
                             s_df.columns = [str(c).strip() for c in s_df.columns]
                             s_key = find_join_key(s_df)
                             s_toko_col = s_df.columns[0]
-                            
                             for _, row in s_df.iterrows():
                                 mask = (m_df[m_key].astype(str) == str(row[s_key])) & (m_df[m_toko_col].astype(str) == str(row[s_toko_col]))
                                 if mask.any():
-                                    cols_to_update = [c for c in s_df.columns if c in m_df.columns]
-                                    m_df.loc[mask, cols_to_update] = row[cols_to_update].values
+                                    cols = [c for c in s_df.columns if c in m_df.columns]
+                                    m_df.loc[mask, cols] = row[cols].values
                             count += 1
                         
-                        if count > 0:
-                            buf = io.BytesIO()
-                            with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                            
-                            # NAMA FILE DOWNLOAD SESUAI PERMINTAAN
-                            file_name_custom = f"so rawan hilang {datetime.now().strftime('%d-%m-%Y')}.xlsx"
-                            
-                            st.download_button(f"📥 Download Hasil ({count} Toko)", buf.getvalue(), file_name_custom)
-                        else:
-                            st.warning("Belum ada inputan toko hari ini.")
+                        buf = io.BytesIO()
+                        with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
+                        fname = f"so rawan hilang {datetime.now().strftime('%d-%m-%Y')}.xlsx"
+                        st.download_button(f"📥 Download ({count} Toko)", buf.getvalue(), fname)
                     except Exception as e: st.error(f"Error: {e}")
 
 # ==========================================
@@ -190,53 +155,63 @@ elif st.session_state.page == "ADMIN":
 # ==========================================
 elif st.session_state.page == "USER":
     hc, oc = st.columns([5, 1])
-    hc.header("📋 Menu Input Toko")
+    hc.header("📋 Input Toko")
     if oc.button("🚪 Logout"):
         st.session_state.page = "HOME"; st.session_state.toko_cari = ""; st.rerun()
 
-    st.caption(f"Master Terupdate (WITA): {get_last_update_master()}")
     ci, cb = st.columns([3, 1])
     t_id = ci.text_input("📍 Kode Toko (4 Digit):", max_chars=4).upper()
     
     if cb.button("🔍 Cari Data") or st.session_state.toko_cari:
         if t_id:
             st.session_state.toko_cari = t_id
-            df_master = load_excel_from_cloud("master_so_utama.xlsx")
+            
+            # 1. LOAD MASTER & WAKTUNYA
+            df_master, time_master = load_excel_with_metadata("so_rawan_hilang/master_so_utama.xlsx")
             
             if df_master is not None:
-                col_toko = df_master.columns[0]
-                master_toko = df_master[df_master[col_toko].astype(str).str.contains(st.session_state.toko_cari)].copy()
+                # 2. LOAD SIMPANAN TOKO & WAKTUNYA
+                u_file = f"so_rawan_hilang/rekap_harian_toko/Hasil_Toko_{st.session_state.toko_cari}.xlsx"
+                df_user, time_user = load_excel_with_metadata(u_file)
                 
-                u_file = f"rekap_harian_toko/Hasil_Toko_{st.session_state.toko_cari}.xlsx"
-                df_user_save = load_excel_from_cloud(u_file)
-                
-                if df_user_save is not None and list(df_user_save.columns) == list(df_master.columns):
-                    data_show = df_user_save
+                # 3. LOGIKA FRESH START:
+                # Jika ada simpanan toko DAN simpanan toko lebih baru dari Master, pakai simpanan toko.
+                # Jika simpanan toko lebih LAMA dari Master (data kemarin), pakai Master.
+                if df_user is not None and time_user is not None and time_master is not None:
+                    if time_user > time_master:
+                        data_show = df_user
+                        st.success("📝 Melanjutkan inputan Anda sebelumnya.")
+                    else:
+                        st.info("🆕 Admin telah upload Master baru. Memulai data hari ini.")
+                        col_tk = df_master.columns[0]
+                        data_show = df_master[df_master[col_tk].astype(str).str.contains(st.session_state.toko_cari)].copy()
                 else:
-                    data_show = master_toko
+                    col_tk = df_master.columns[0]
+                    data_show = df_master[df_master[col_tk].astype(str).str.contains(st.session_state.toko_cari)].copy()
                 
                 if not data_show.empty:
                     st.subheader(f"🏠 Toko: {st.session_state.toko_cari}")
                     
+                    # Kolom Dinamis
                     col_stok = next((c for c in data_show.columns if 'stok' in c.lower()), None)
                     col_sales = next((c for c in data_show.columns if 'sales' in c.lower()), 'Query Sales')
                     col_fisik = next((c for c in data_show.columns if 'fisik' in c.lower()), 'Jml Fisik')
                     col_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
 
-                    for c_name in [col_sales, col_fisik, col_selisih]:
-                        if c_name not in data_show.columns: data_show[c_name] = 0
+                    for cn in [col_sales, col_fisik, col_selisih]:
+                        if cn not in data_show.columns: data_show[cn] = 0
 
                     edited = st.data_editor(
                         data_show,
                         disabled=[c for c in data_show.columns if c not in [col_sales, col_fisik]],
-                        hide_index=True, use_container_width=True, key=f"ed_v5_{st.session_state.toko_cari}"
+                        hide_index=True, use_container_width=True, key=f"ed_v6_{st.session_state.toko_cari}"
                     )
 
-                    val_s = pd.to_numeric(edited[col_sales], errors='coerce').fillna(0)
-                    val_f = pd.to_numeric(edited[col_fisik], errors='coerce').fillna(0)
+                    vs = pd.to_numeric(edited[col_sales], errors='coerce').fillna(0)
+                    vf = pd.to_numeric(edited[col_fisik], errors='coerce').fillna(0)
                     if col_stok:
-                        val_h1 = pd.to_numeric(edited[col_stok], errors='coerce').fillna(0)
-                        edited[col_selisih] = (val_s + val_f) - val_h1
+                        vh = pd.to_numeric(edited[col_stok], errors='coerce').fillna(0)
+                        edited[col_selisih] = (vs + vf) - vh
 
                     st.write("### 📝 Preview Hasil:")
                     st.dataframe(edited, use_container_width=True, hide_index=True)
