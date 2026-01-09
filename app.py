@@ -131,7 +131,7 @@ elif st.session_state.page == "ADMIN":
                         count += 1
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                    st.download_button(f"📥 Download Rekap ({count} Toko)", buf.getvalue(), f"so_rawan_hilang_{r_str}.xlsx")
+                    st.download_button(f"📥 Download Rekap {r_str} ({count} Toko)", buf.getvalue(), f"so_rawan_hilang_{r_str}.xlsx")
                 else: st.error("Master tidak ditemukan.")
 
         with tab2:
@@ -185,14 +185,15 @@ elif st.session_state.page == "USER":
                 data_to_edit = df_user
             else:
                 data_to_edit = master_filtered
-                # Cari nama kolom secara fleksibel
+                # Identifikasi kolom
                 c_sales_init = next((c for c in data_to_edit.columns if 'sales' in c.lower()), 'Query Sales')
                 c_fisik_init = next((c for c in data_to_edit.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 c_selisih_init = next((c for c in data_to_edit.columns if 'selisih' in c.lower()), 'Selisih')
                 
-                # Reset kolom input agar bersih dari master
-                data_to_edit[c_sales_init] = 0
-                data_to_edit[c_fisik_init] = 0
+                # Biarkan kolom tetap None (Blank) di awal agar user wajib mengisi
+                # Jika Anda ingin default 0, ubah None menjadi 0
+                data_to_edit[c_sales_init] = None
+                data_to_edit[c_fisik_init] = None
                 data_to_edit[c_selisih_init] = 0
 
             if not data_to_edit.empty:
@@ -213,21 +214,21 @@ elif st.session_state.page == "USER":
 
                 st.divider()
                 if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
-                    # 1. VALIDASI: Cek apakah ada kolom yang None (kosong)
-                    check_sales = edited_df[c_sales].isna().any()
-                    check_fisik = edited_df[c_fisik].isna().any()
+                    # --- LOGIKA VALIDASI BLANK (KOSONG) ---
+                    # Mengecek apakah ada baris yang sel-nya None atau NaN
+                    is_sales_blank = edited_df[c_sales].isnull().any()
+                    is_fisik_blank = edited_df[c_fisik].isnull().any()
 
-                    if check_sales or check_fisik:
-                        st.error("⚠️ Ada kolom yang belum diisi! Pastikan semua baris pada Query Sales dan Jml Fisik terisi angka (minimal 0).")
+                    if is_sales_blank or is_fisik_blank:
+                        st.error("⚠️ Ada item/kolom yang belum terisi! Silakan periksa kembali tabel Anda.")
                     else:
-                        # 2. KALKULASI: Hitung selisih di latar belakang sebelum simpan
+                        # KALKULASI DI BACKEND SEBELUM SIMPAN
                         vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
                         vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
                         vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
                         
                         edited_df[c_selisih] = (vs + vf) - vh
                         
-                        # 3. LANJUT KE DIALOG SIMPAN
                         confirm_submit_dialog(edited_df, t_id, d_str)
             else: st.error("Data toko tidak ketemu.")
         else: st.error(f"Master untuk tanggal {d_str} belum di-upload oleh Admin.")
