@@ -41,7 +41,7 @@ def find_join_key(df):
         if col.lower() in possible_keys: return col
     return df.columns[2]
 
-# --- 3. DIALOG KONFIRMASI ---
+# --- 3. DIALOG KONFIRMASI SIMPAN ---
 
 @st.dialog("Konfirmasi Simpan")
 def confirm_submit_dialog(data_toko, toko_code, date_str):
@@ -102,14 +102,13 @@ elif st.session_state.page == "ADMIN":
             
             if f_admin and st.button("🚀 Publish Master & Reset Semua Input Toko"):
                 with st.spinner("Sedang memproses reset harian..."):
-                    # Hapus history input lama agar tidak bentrok dengan master baru
                     prefix_del = f"so_rawan_hilang/{d_str}_Hasil_"
                     try: cloudinary.api.delete_resources_by_prefix(prefix_del, resource_type="raw")
                     except: pass
                     
                     p_id = f"so_rawan_hilang/{d_str}_Master.xlsx"
                     cloudinary.uploader.upload(f_admin, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
-                    st.success(f"✅ Master {d_str} Aktif! Seluruh inputan toko telah di-reset.")
+                    st.success(f"✅ Master {d_str} Aktif! Data input toko telah di-reset.")
 
             st.divider()
             st.subheader("Tarik Rekap Gabungan")
@@ -132,7 +131,7 @@ elif st.session_state.page == "ADMIN":
                         count += 1
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                    st.download_button(f"📥 Download Rekap {r_str} ({count} Toko)", buf.getvalue(), f"so_rawan_hilang_{r_str}.xlsx")
+                    st.download_button(f"📥 Download Rekap ({count} Toko)", buf.getvalue(), f"so_rawan_hilang_{r_str}.xlsx")
                 else: st.error("Master tidak ditemukan.")
 
         with tab2:
@@ -155,11 +154,11 @@ elif st.session_state.page == "ADMIN":
 # ==========================================
 elif st.session_state.page == "USER":
     if st.button("🚪 Logout"):
-        st.session_state.page = "HOME"; st.session_state.search_active = False; st.session_state.preview_calc = None; st.rerun()
+        st.session_state.page = "HOME"; st.session_state.search_active = False; st.rerun()
 
     st.header("📋 Input Data Toko")
     col_d, col_t, col_b = st.columns([2, 2, 1])
-    with col_d: u_date = st.date_input("Pilih Tanggal:", datetime.now())
+    with col_d: u_date = st.date_input("Pilih Tanggal Operasional:", datetime.now())
     with col_t: t_id = st.text_input("📍 Kode Toko:", max_chars=4).upper()
     with col_b:
         st.write("##")
@@ -168,7 +167,6 @@ elif st.session_state.page == "USER":
                 st.session_state.search_active = True
                 st.session_state.active_toko = t_id
                 st.session_state.active_date = u_date.strftime("%Y-%m-%d")
-                st.session_state.preview_calc = None # Reset preview saat cari baru
             else: st.error("Isi kode toko!")
 
     if st.session_state.search_active:
@@ -181,20 +179,18 @@ elif st.session_state.page == "USER":
             u_id = f"so_rawan_hilang/{d_str}_Hasil_{t_id}.xlsx"
             df_user = load_excel_from_cloud(u_id)
             
-            # Filter master untuk toko ini
             master_filtered = df_master[df_master[df_master.columns[0]].astype(str).str.contains(t_id)].copy()
             
             if df_user is not None:
                 data_to_edit = df_user
             else:
-                # LOGIKA FIX: Reset kolom input dan kalkulasi agar tidak terbawa dari Master Excel
                 data_to_edit = master_filtered
                 # Cari nama kolom secara fleksibel
                 c_sales_init = next((c for c in data_to_edit.columns if 'sales' in c.lower()), 'Query Sales')
                 c_fisik_init = next((c for c in data_to_edit.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 c_selisih_init = next((c for c in data_to_edit.columns if 'selisih' in c.lower()), 'Selisih')
                 
-                # Paksa kolom input menjadi kosong/nol saat pertama kali load dari master
+                # Reset kolom input agar bersih dari master
                 data_to_edit[c_sales_init] = 0
                 data_to_edit[c_fisik_init] = 0
                 data_to_edit[c_selisih_init] = 0
@@ -215,29 +211,23 @@ elif st.session_state.page == "USER":
                     hide_index=True, use_container_width=True, key=f"editor_{d_str}_{t_id}"
                 )
 
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("🔄 Update Selisih"):
-                        vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
-                        vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
-                        vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
-                        edited_df[c_selisih] = (vs + vf) - vh
-                        st.session_state.preview_calc = edited_df
-                        st.success("Tabel hasil perhitungan muncul di bawah!")
+                st.divider()
+                if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
+                    # 1. VALIDASI: Cek apakah ada kolom yang None (kosong)
+                    check_sales = edited_df[c_sales].isna().any()
+                    check_fisik = edited_df[c_fisik].isna().any()
 
-                with c2:
-                    if st.button("🚀 Simpan Laporan", type="primary"):
-                        # Hitung ulang sekali lagi sebelum simpan untuk akurasi
+                    if check_sales or check_fisik:
+                        st.error("⚠️ Ada kolom yang belum diisi! Pastikan semua baris pada Query Sales dan Jml Fisik terisi angka (minimal 0).")
+                    else:
+                        # 2. KALKULASI: Hitung selisih di latar belakang sebelum simpan
                         vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
                         vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
                         vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
+                        
                         edited_df[c_selisih] = (vs + vf) - vh
+                        
+                        # 3. LANJUT KE DIALOG SIMPAN
                         confirm_submit_dialog(edited_df, t_id, d_str)
-
-                # Tabel Review Hasil
-                if st.session_state.get('preview_calc') is not None:
-                    st.divider()
-                    st.write("### 📝 Preview Hasil Sebelum Submit:")
-                    st.dataframe(st.session_state.preview_calc, use_container_width=True, hide_index=True)
             else: st.error("Data toko tidak ketemu.")
-        else: st.error(f"Master untuk tanggal {d_str} belum di-upload.")
+        else: st.error(f"Master untuk tanggal {d_str} belum di-upload oleh Admin.")
