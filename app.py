@@ -20,15 +20,14 @@ except:
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
-# --- 2. FUNGSI INTI ---
+# --- 2. FUNGSI PENDUKUNG ---
 
+@st.cache_data(ttl=60) # Cache sebentar saja agar sinkron
 def get_master_data_and_version():
-    """Mengambil Master dan Nomor Versi Uniknya dari Cloudinary"""
     try:
         p_id = "so_rawan_hilang/master_utama.xlsx"
         res = cloudinary.api.resource(p_id, resource_type="raw", cache_control="no-cache")
         v_id = str(res.get('version', '1'))
-        
         url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{v_id}/{p_id}"
         resp = requests.get(url, timeout=10)
         if resp.status_code == 200:
@@ -39,11 +38,10 @@ def get_master_data_and_version():
         return None, None
     return None, None
 
-def load_user_save_by_version(toko_id, v_id):
-    """Mencari simpanan toko yang cocok dengan versi master saat ini"""
+def load_user_save(toko_id, v_id):
     try:
-        p_id = f"so_rawan_hilang/hasil/Hasil_{toko_code}_v{v_id}.xlsx" # typo fix: toko_code -> toko_id
-        url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{int(time.time())}/so_rawan_hilang/hasil/Hasil_{toko_id}_v{v_id}.xlsx"
+        p_id = f"so_rawan_hilang/hasil/Hasil_{toko_id}_v{v_id}.xlsx"
+        url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{int(time.time())}/{p_id}"
         resp = requests.get(url, timeout=10)
         if resp.status_code == 200:
             df = pd.read_excel(io.BytesIO(resp.content))
@@ -53,7 +51,7 @@ def load_user_save_by_version(toko_id, v_id):
         return None
     return None
 
-# --- 3. DIALOG SIMPAN ---
+# --- 3. DIALOG KONFIRMASI ---
 @st.dialog("Konfirmasi Simpan")
 def confirm_submit_dialog(data_toko, toko_code, v_id):
     st.warning(f"⚠️ Simpan data Toko {toko_code}?")
@@ -66,7 +64,9 @@ def confirm_submit_dialog(data_toko, toko_code, v_id):
             p_id = f"so_rawan_hilang/hasil/Hasil_{toko_code}_v{v_id}.xlsx"
             cloudinary.uploader.upload(buffer, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
             st.success("✅ Berhasil Tersimpan!")
-            time.sleep(1)
+            time.sleep(1.5)
+            # Reset state setelah simpan agar bersih
+            st.session_state.user_df = None
             st.rerun()
         except Exception as e:
             st.error(f"Gagal simpan: {e}")
@@ -74,7 +74,8 @@ def confirm_submit_dialog(data_toko, toko_code, v_id):
 # --- 4. SISTEM MENU & STATE ---
 if 'page' not in st.session_state: st.session_state.page = "HOME"
 if 'admin_auth' not in st.session_state: st.session_state.admin_auth = False
-if 'user_search_lock' not in st.session_state: st.session_state.user_search_lock = False
+if 'user_df' not in st.session_state: st.session_state.user_df = None
+if 'active_toko' not in st.session_state: st.session_state.active_toko = ""
 
 # ==========================================
 #              HALAMAN UTAMA
@@ -104,28 +105,16 @@ elif st.session_state.page == "ADMIN":
             else: st.error("Salah!")
     else:
         st.subheader("Upload Master Baru")
-        st.info("💡 Setiap kali Anda upload master baru, data inputan toko sebelumnya akan otomatis dihapus dari cloud.")
         f_admin = st.file_uploader("Pilih Excel Master (.xlsx)", type=["xlsx"])
-        if f_admin and st.button("🚀 Publish Master & Bersihkan Cloud"):
-            with st.spinner("Sedang membersihkan data lama & mengunggah master..."):
-                # LOGIKA AUTO-CLEAN: Hapus folder hasil sebelum upload master baru
-                try:
-                    cloudinary.api.delete_resources_by_prefix("so_rawan_hilang/hasil/", resource_type="raw")
-                except:
-                    pass
-                
-                # Upload Master Baru
-                cloudinary.uploader.upload(
-                    f_admin, resource_type="raw", 
-                    public_id="so_rawan_hilang/master_utama.xlsx", 
-                    overwrite=True, invalidate=True
-                )
-                st.success("✅ Cloud Bersih & Master Berhasil Terbit!")
-                time.sleep(1.5)
-                st.rerun()
+        if f_admin and st.button("🚀 Publish Master & Reset Semua Input Toko"):
+            with st.spinner("Membersihkan cloud & mengupload master..."):
+                try: cloudinary.api.delete_resources_by_prefix("so_rawan_hilang/hasil/", resource_type="raw")
+                except: pass
+                cloudinary.uploader.upload(f_admin, resource_type="raw", public_id="so_rawan_hilang/master_utama.xlsx", overwrite=True, invalidate=True)
+                st.cache_data.clear()
+                st.success("✅ Berhasil Publish!"); time.sleep(1.5); st.rerun()
 
         st.divider()
-        st.subheader("Tarik Rekap Gabungan")
         if st.button("🔄 Gabung Data Seluruh Toko"):
             with st.spinner("Menarik data..."):
                 m_df, m_ver = get_master_data_and_version()
@@ -144,7 +133,7 @@ elif st.session_state.page == "ADMIN":
                             count += 1
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                    st.download_button(f"📥 Download ({count} Toko)", buf.getvalue(), "rekap_so_final.xlsx")
+                    st.download_button(f"📥 Download ({count} Toko)", buf.getvalue(), "rekap_so.xlsx")
 
 # ==========================================
 #              HALAMAN USER (TOKO)
@@ -152,53 +141,72 @@ elif st.session_state.page == "ADMIN":
 elif st.session_state.page == "USER":
     if st.button("🚪 Logout"):
         st.session_state.page = "HOME"
-        st.session_state.user_search_lock = False
+        st.session_state.active_toko = ""
+        st.session_state.user_df = None
         st.rerun()
 
     st.header("📋 Input Data Toko")
-    t_id = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="F2AA").upper()
+    t_id = st.text_input("📍 Kode Toko:", value=st.session_state.active_toko, max_chars=4, placeholder="F2AA").upper()
     
-    if st.button("🔍 Cari Data") or st.session_state.user_search_lock:
+    if st.button("🔍 Cari Data"):
         if t_id:
-            st.session_state.user_search_lock = True
+            st.session_state.active_toko = t_id
             df_m, v_now = get_master_data_and_version()
-            
             if df_m is not None:
-                df_u = load_user_save_by_version(t_id, v_now)
-                m_filt = df_m[df_m[df_m.columns[0]].astype(str).str.contains(t_id)].copy()
-                
+                df_u = load_user_save(t_id, v_now)
                 if df_u is not None:
-                    data_show = df_u
+                    st.session_state.user_df = df_u
                     st.success("📝 Melanjutkan inputan sebelumnya.")
                 else:
-                    data_show = m_filt
-                    c_s_init = next((c for c in data_show.columns if 'sales' in c.lower()), 'Query Sales')
-                    c_f_init = next((c for c in data_show.columns if 'fisik' in c.lower()), 'Jml Fisik')
-                    c_sl_init = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
-                    data_show[c_s_init] = None
-                    data_show[c_f_init] = None
-                    data_show[c_sl_init] = 0
-                
-                if not data_show.empty:
-                    st.subheader(f"🏠 Toko: {t_id}")
-                    c_stok = next((c for c in data_show.columns if 'stok' in c.lower()), 'Stok H-1')
-                    c_sales = next((c for c in data_show.columns if 'sales' in c.lower()), 'Query Sales')
-                    c_fisik = next((c for c in data_show.columns if 'fisik' in c.lower()), 'Jml Fisik')
-                    c_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
-
-                    edited = st.data_editor(
-                        data_show,
-                        disabled=[c for c in data_show.columns if c not in [c_sales, c_fisik]],
-                        hide_index=True, use_container_width=True, key=f"ed_{v_now}_{t_id}"
-                    )
-
-                    if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
-                        if edited[c_sales].isnull().any() or edited[c_fisik].isnull().any():
-                            st.error("⚠️ Ada kolom yang belum diisi!")
-                        else:
-                            vs = pd.to_numeric(edited[c_sales], errors='coerce').fillna(0)
-                            vf = pd.to_numeric(edited[c_fisik], errors='coerce').fillna(0)
-                            vh = pd.to_numeric(edited[c_stok], errors='coerce').fillna(0)
-                            edited[c_selisih] = (vs + vf) - vh
-                            confirm_submit_dialog(edited, t_id, v_now)
+                    m_filt = df_m[df_m[df_m.columns[0]].astype(str).str.contains(t_id)].copy()
+                    # SET DEFAULT BLANK (None) agar kuncian validasi berfungsi
+                    c_sales_n = next((c for c in m_filt.columns if 'sales' in c.lower()), 'Query Sales')
+                    c_fisik_n = next((c for c in m_filt.columns if 'fisik' in c.lower()), 'Jml Fisik')
+                    c_sel_n = next((c for c in m_filt.columns if 'selisih' in c.lower()), 'Selisih')
+                    
+                    m_filt[c_sales_n] = None
+                    m_filt[c_fisik_n] = None
+                    m_filt[c_sel_n] = 0
+                    st.session_state.user_df = m_filt
+                    st.info("🆕 Menggunakan Master Data Terbaru.")
             else: st.error("Master belum di-upload.")
+        else: st.error("Masukkan Kode Toko!")
+
+    if st.session_state.user_df is not None:
+        st.subheader(f"🏠 Toko: {st.session_state.active_toko}")
+        
+        # Ambil data dari session_state agar stabil saat diketik
+        df_to_edit = st.session_state.user_df
+        
+        c_stok = next((c for c in df_to_edit.columns if 'stok' in c.lower()), 'Stok H-1')
+        c_sales = next((c for c in df_to_edit.columns if 'sales' in c.lower()), 'Query Sales')
+        c_fisik = next((c for c in df_to_edit.columns if 'fisik' in c.lower()), 'Jml Fisik')
+        c_selisih = next((c for c in df_to_edit.columns if 'selisih' in c.lower()), 'Selisih')
+
+        # EDITOR UTAMA (Stabil & Anti-Reset)
+        edited = st.data_editor(
+            df_to_edit,
+            disabled=[c for c in df_to_edit.columns if c not in [c_sales, c_fisik]],
+            hide_index=True, use_container_width=True, key="stable_editor_v2"
+        )
+        
+        # Simpan perubahan ke session_state setiap kali ada ketikan
+        st.session_state.user_df = edited
+
+        if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
+            # 1. VALIDASI: Cek apakah ada yang benar-benar BLANK (None/NaN)
+            is_sales_blank = edited[c_sales].isnull().any()
+            is_fisik_blank = edited[c_fisik].isnull().any()
+
+            if is_sales_blank or is_fisik_blank:
+                st.error("⚠️ Ada item/kolom yang belum terisi! Silakan lengkapi semua baris (isi 0 jika memang tidak ada).")
+            else:
+                # 2. KALKULASI: Baru hitung selisih setelah validasi lolos
+                with st.spinner("Menghitung & Memproses..."):
+                    vs = pd.to_numeric(edited[c_sales], errors='coerce').fillna(0)
+                    vf = pd.to_numeric(edited[c_fisik], errors='coerce').fillna(0)
+                    vh = pd.to_numeric(edited[c_stok], errors='coerce').fillna(0)
+                    edited[c_selisih] = (vs + vf) - vh
+                    
+                    _, v_now = get_master_data_and_version()
+                    confirm_submit_dialog(edited, st.session_state.active_toko, v_now)
