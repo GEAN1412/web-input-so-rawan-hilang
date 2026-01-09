@@ -6,7 +6,7 @@ import cloudinary.api
 import io
 import requests
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # --- 1. KONFIGURASI CLOUDINARY ---
 try:
@@ -17,28 +17,19 @@ try:
       secure = True
     )
 except:
-    st.error("Konfigurasi Secrets Cloudinary tidak ditemukan!")
+    st.error("Konfigurasi Secrets Cloudinary belum lengkap!")
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
-# --- 2. FUNGSI PENDUKUNG (HELPERS) ---
-
-def get_file_metadata(public_id):
-    """Mendapatkan jam terakhir file di-upload/di-update di Cloudinary (Anti-Cache)"""
-    try:
-        res = cloudinary.api.resource(public_id, resource_type="raw", cache_control="no-cache")
-        return datetime.strptime(res['created_at'], '%Y-%m-%dT%H:%M:%SZ')
-    except:
-        return None
+# --- 2. FUNGSI PENDUKUNG ---
 
 def load_excel_from_cloud(public_id):
-    """Memuat isi file Excel dari Cloudinary (Anti-Cache)"""
     try:
         url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{int(time.time())}/{public_id}"
-        resp = requests.get(url, timeout=15)
+        resp = requests.get(url, timeout=10)
         if resp.status_code == 200:
             df = pd.read_excel(io.BytesIO(resp.content))
-            df.columns = [str(c).strip() for c in df.columns] # Bersihkan spasi header
+            df.columns = [str(c).strip() for c in df.columns]
             return df
     except:
         return None
@@ -60,7 +51,6 @@ def confirm_submit_dialog(data_toko, toko_code, date_str):
             data_toko.to_excel(writer, index=False)
         buffer.seek(0)
         try:
-            # File disimpan dengan prefix Tanggal
             p_id = f"so_rawan_hilang/{date_str}_Hasil_{toko_code}.xlsx"
             cloudinary.uploader.upload(buffer, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
             st.success("✅ Berhasil Tersimpan!")
@@ -102,15 +92,27 @@ elif st.session_state.page == "ADMIN":
             else: st.error("Salah!")
     else:
         tab1, tab2 = st.tabs(["📤 Upload & Download", "🗑️ Hapus Data"])
+        
         with tab1:
             st.subheader("Upload Master Baru")
             u_date = st.date_input("Berlaku untuk Tanggal:", datetime.now())
             d_str = u_date.strftime("%Y-%m-%d")
             f_admin = st.file_uploader("Pilih Excel", type=["xlsx"])
-            if f_admin and st.button("🚀 Publish Master"):
-                p_id = f"so_rawan_hilang/{d_str}_Master.xlsx"
-                cloudinary.uploader.upload(f_admin, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
-                st.success(f"✅ Master {d_str} Berhasil Publish! Seluruh inputan toko lama otomatis di-reset.")
+            
+            if f_admin and st.button("🚀 Publish Master & Reset Semua Input Toko"):
+                with st.spinner("Sedang memproses reset harian..."):
+                    # 1. HAPUS SEMUA HASIL INPUT TOKO YANG ADA UNTUK TANGGAL INI
+                    # Ini kunci agar history lama hilang total
+                    prefix_to_delete = f"so_rawan_hilang/{d_str}_Hasil_"
+                    try:
+                        cloudinary.api.delete_resources_by_prefix(prefix_to_delete, resource_type="raw")
+                    except:
+                        pass # Lewati jika folder memang sudah kosong
+                    
+                    # 2. UPLOAD MASTER BARU
+                    p_id = f"so_rawan_hilang/{d_str}_Master.xlsx"
+                    cloudinary.uploader.upload(f_admin, resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
+                    st.success(f"✅ Master {d_str} Aktif! Seluruh inputan toko pada tanggal ini telah di-reset.")
 
             st.divider()
             st.subheader("Tarik Rekap Gabungan")
@@ -133,7 +135,7 @@ elif st.session_state.page == "ADMIN":
                         count += 1
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                    st.download_button(f"📥 Download Rekap {r_str} ({count} Toko)", buf.getvalue(), f"so rawan hilang {r_str}.xlsx")
+                    st.download_button(f"📥 Download Rekap ({count} Toko)", buf.getvalue(), f"so_rawan_hilang_{r_str}.xlsx")
                 else: st.error("Master tdk ditemukan.")
 
         with tab2:
@@ -175,34 +177,21 @@ elif st.session_state.page == "USER":
         d_str = st.session_state.active_date
         t_id = st.session_state.active_toko
         
-        # 1. AMBIL WAKTU & DATA MASTER
-        master_id = f"so_rawan_hilang/{d_str}_Master.xlsx"
-        time_m = get_file_metadata(master_id)
-        df_master = load_excel_from_cloud(master_id)
+        # 1. CARI MASTER
+        df_master = load_excel_from_cloud(f"so_rawan_hilang/{d_str}_Master.xlsx")
         
         if df_master is not None:
-            # 2. AMBIL WAKTU & DATA USER
-            user_id = f"so_rawan_hilang/{d_str}_Hasil_{t_id}.xlsx"
-            time_u = get_file_metadata(user_id)
-            df_user = load_excel_from_cloud(user_id)
+            # 2. CARI SIMPANAN TOKO (Jika Admin baru reset, file ini pasti tidak ada)
+            u_id = f"so_rawan_hilang/{d_str}_Hasil_{t_id}.xlsx"
+            df_user = load_excel_from_cloud(u_id)
             
-            # --- LOGIKA RESET OTOMATIS ---
-            # Jika jam master lebih baru dari jam simpan toko -> Pakai Master (Reset)
-            if df_user is not None and time_m and time_u:
-                if time_m > time_u:
-                    st.info("🆕 Admin baru saja update Master. Data Anda telah di-reset.")
-                    master_filt = df_master[df_master[df_master.columns[0]].astype(str).str.contains(t_id)].copy()
-                    data_to_edit = master_filt
-                else:
-                    data_to_edit = df_user
-            else:
-                master_filt = df_master[df_master[df_master.columns[0]].astype(str).str.contains(t_id)].copy()
-                data_to_edit = master_filt
+            # Gabungkan logika pemilihan data
+            master_filtered = df_master[df_master[df_master.columns[0]].astype(str).str.contains(t_id)].copy()
+            data_to_edit = df_user if df_user is not None else master_filtered
 
             if not data_to_edit.empty:
                 st.subheader(f"🏠 Toko: {t_id} | 📅 {d_str}")
                 
-                # Identifikasi Kolom (Case Insensitive)
                 c_stok = next((c for c in data_to_edit.columns if 'stok' in c.lower()), 'Stok H-1')
                 c_sales = next((c for c in data_to_edit.columns if 'sales' in c.lower()), 'Query Sales')
                 c_fisik = next((c for c in data_to_edit.columns if 'fisik' in c.lower()), 'Jml Fisik')
@@ -223,10 +212,10 @@ elif st.session_state.page == "USER":
                         vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
                         edited_df[c_selisih] = (vs + vf) - vh
                         st.session_state.preview_calc = edited_df
-                        st.success("Tabel preview muncul di bawah!")
+                        st.success("Tabel preview di bawah terupdate!")
 
                 with c2:
-                    if st.button("🚀 Simpan", type="primary"):
+                    if st.button("🚀 Simpan Laporan", type="primary"):
                         vs = pd.to_numeric(edited_df[c_sales], errors='coerce').fillna(0)
                         vf = pd.to_numeric(edited_df[c_fisik], errors='coerce').fillna(0)
                         vh = pd.to_numeric(edited_df[c_stok], errors='coerce').fillna(0)
@@ -236,5 +225,5 @@ elif st.session_state.page == "USER":
                 if 'preview_calc' in st.session_state:
                     st.divider()
                     st.dataframe(st.session_state.preview_calc, use_container_width=True, hide_index=True)
-            else: st.error("Toko tdk ditemukan.")
-        else: st.error(f"Master {d_str} belum tersedia.")
+            else: st.error("Data toko tidak ketemu.")
+        else: st.error(f"Master untuk tanggal {d_str} tidak ditemukan.")
