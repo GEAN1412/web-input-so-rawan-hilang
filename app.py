@@ -52,7 +52,6 @@ def save_json_db(path, db_dict):
         return False
 
 def record_login_hit(nik):
-    """Mencatat aktivitas login user per tanggal"""
     db_logs = load_json_db(LOG_DB_PATH)
     today = get_now_wita().strftime('%Y-%m-%d')
     if nik not in db_logs:
@@ -141,6 +140,7 @@ if 'page' not in st.session_state: st.session_state.page = "HOME"
 if 'logged_in' not in st.session_state: st.session_state.logged_in = False
 if 'user_nik' not in st.session_state: st.session_state.user_nik = ""
 if 'admin_auth' not in st.session_state: st.session_state.admin_auth = False
+if 'user_search_active' not in st.session_state: st.session_state.user_search_active = False
 
 # ==========================================
 #              HALAMAN UTAMA
@@ -163,15 +163,18 @@ elif st.session_state.page == "REGISTER":
     st.header("📝 Daftar Akun Baru")
     new_nik = st.text_input("NIK (10 Digit):", max_chars=10)
     new_pw = st.text_input("Buat Password:", type="password")
+    st.caption("ℹ️ Password minimal 4 digit (bisa kombinasi angka dan huruf, atau angka saja, atau huruf saja)")
+    
     if st.button("Daftar Sekarang", use_container_width=True):
-        if len(new_nik) != 10 or not new_nik.isdigit(): st.error("NIK harus 10 digit!")
+        if len(new_nik) != 10 or not new_nik.isdigit(): st.error("NIK harus 10 digit angka!")
+        elif len(new_pw) < 4: st.error("Password minimal 4 karakter!")
         else:
             db = load_json_db(USER_DB_PATH)
-            if new_nik in db: st.error("NIK sudah ada!")
+            if new_nik in db: st.error("NIK sudah terdaftar!")
             else:
                 db[new_nik] = new_pw
                 if save_json_db(USER_DB_PATH, db):
-                    st.success("✅ Terdaftar!"); time.sleep(1); st.session_state.page = "LOGIN"; st.rerun()
+                    st.success("✅ Pendaftaran Berhasil!"); time.sleep(1); st.session_state.page = "LOGIN"; st.rerun()
     if st.button("⬅️ Kembali"): st.session_state.page = "HOME"; st.rerun()
 
 # ==========================================
@@ -181,24 +184,16 @@ elif st.session_state.page == "LOGIN":
     st.header("🔑 Login Karyawan")
     log_nik = st.text_input("Masukkan NIK:", max_chars=10)
     log_pw = st.text_input("Masukkan Password:", type="password")
-    
     if st.button("Masuk Sekarang", use_container_width=True, type="primary"):
         db = load_json_db(USER_DB_PATH)
         if log_nik in db and db[log_nik] == log_pw:
             record_login_hit(log_nik)
             st.session_state.logged_in, st.session_state.user_nik, st.session_state.page = True, log_nik, "USER_INPUT"
             st.rerun()
-        else:
-            st.error("NIK atau Password salah!")
-            
-    if st.button("⬅️ Kembali", use_container_width=True):
-        st.session_state.page = "HOME"; st.rerun()
-
-    # TOMBOL LUPA PASSWORD (WhatsApp)
+        else: st.error("NIK atau Password salah!")
+    if st.button("⬅️ Kembali", use_container_width=True): st.session_state.page = "HOME"; st.rerun()
     st.write("") 
-    st.link_button("📲 Lupa Password? Hubungi Admin", 
-                   "https://wa.me/6287725860048?text=Halo%20Admin,%20saya%20lupa%20password%20untuk%20login%20Sistem%20SO%20Rawan%20Hilang", 
-                   use_container_width=True)
+    st.link_button("📲 Lupa Password? Hubungi Admin", "https://wa.me/6287725860048?text=Halo%20Admin,%20saya%20lupa%20password%20untuk%20login%20Sistem%20SO%20Rawan%20Hilang", use_container_width=True)
 
 # ==========================================
 #              HALAMAN ADMIN
@@ -215,7 +210,6 @@ elif st.session_state.page == "ADMIN":
             else: st.error("Salah!")
     else:
         tab1, tab2, tab3 = st.tabs(["📤 Master & Rekap", "📊 Monitoring Akses", "🗑️ Reset Password"])
-        
         with tab1:
             st.subheader("Update Master Data")
             f_adm = st.file_uploader("Upload Excel", type=["xlsx"])
@@ -236,9 +230,8 @@ elif st.session_state.page == "ADMIN":
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
                     st.download_button(f"📥 Download Rekap ({get_indonesia_date()})", buf.getvalue(), f"Rekap_{get_indonesia_date()}.xlsx")
-
         with tab2:
-            st.subheader("📊 Monitoring Aktivitas User")
+            st.subheader("📊 Monitoring Aktivitas")
             logs = load_json_db(LOG_DB_PATH)
             if logs:
                 flat_data = []
@@ -248,18 +241,15 @@ elif st.session_state.page == "ADMIN":
                 df_logs = pd.DataFrame(flat_data).sort_values(by="Tanggal Akses", ascending=False)
                 st.dataframe(df_logs, use_container_width=True, hide_index=True)
                 csv = df_logs.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 Download History Akses (CSV)", csv, f"History_Akses_{get_now_wita().strftime('%d%m%Y')}.csv", "text/csv")
-            else: st.info("Belum ada aktivitas login.")
-
+                st.download_button("📥 Download History (CSV)", csv, f"History_{get_now_wita().strftime('%d%m%Y')}.csv")
         with tab3:
-            st.subheader("Reset Password User")
-            target_nik = st.text_input("Masukkan NIK:")
+            target_nik = st.text_input("Masukkan NIK untuk reset:")
             if st.button("Reset ke '123456'"):
                 db = load_json_db(USER_DB_PATH)
                 if target_nik in db:
                     db[target_nik] = "123456"
-                    if save_json_db(USER_DB_PATH, db): st.success("✅ Password berhasil direset ke 123456!")
-                else: st.error("NIK tidak ditemukan.")
+                    if save_json_db(USER_DB_PATH, db): st.success("✅ Reset Berhasil!")
+                else: st.error("NIK tdk ditemukan.")
 
 # ==========================================
 #              HALAMAN USER (TOKO)
@@ -267,25 +257,37 @@ elif st.session_state.page == "ADMIN":
 elif st.session_state.page == "USER_INPUT":
     if not st.session_state.logged_in: st.session_state.page = "HOME"; st.rerun()
     hc, oc = st.columns([5, 1])
-    hc.header(f"📋 Menu Input (User: {st.session_state.user_nik})")
-    if oc.button("🚪 Logout"): st.session_state.logged_in, st.session_state.page = False, "HOME"; st.rerun()
+    hc.header(f"📋 Menu Input ({st.session_state.user_nik})")
+    if oc.button("🚪 Logout"): 
+        st.session_state.logged_in, st.session_state.user_search_active = False, False
+        st.session_state.page = "HOME"; st.rerun()
 
-    t_id = st.text_input("📍 Kode Toko:", max_chars=4).upper()
-    if t_id:
+    t_col, b_col = st.columns([3, 1])
+    with t_col:
+        t_id = st.text_input("📍 Kode Toko:", max_chars=4).upper()
+    with b_col:
+        st.write("##")
+        if st.button("🔍 Cari Data", use_container_width=True):
+            if t_id:
+                st.session_state.active_toko = t_id
+                st.session_state.user_search_active = True
+            else: st.error("Isi Kode Toko!")
+
+    if st.session_state.user_search_active:
         df_m, v_now = get_master_info()
         if df_m is not None:
-            df_u = load_user_save(t_id, v_now)
-            m_filt = df_m[df_m[df_m.columns[0]].astype(str).str.contains(t_id)].copy()
+            df_u = load_user_save(st.session_state.active_toko, v_now)
+            m_filt = df_m[df_m[df_m.columns[0]].astype(str).str.contains(st.session_state.active_toko)].copy()
             data_show = df_u if df_u is not None else m_filt
             if df_u is None:
                 c_s = next((c for c in data_show.columns if 'sales' in c.lower()), 'Query Sales')
                 c_f = next((c for c in data_show.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 data_show[c_s], data_show[c_f], data_show[next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')] = None, None, 0
             if not data_show.empty:
-                st.subheader(f"🏠 Toko: {t_id}")
+                st.subheader(f"🏠 Toko: {st.session_state.active_toko}")
                 c_stok = next((c for c in data_show.columns if 'stok' in c.lower()), 'Stok H-1')
                 c_sales = next((c for c in data_show.columns if 'sales' in c.lower()), 'Query Sales')
                 c_fisik = next((c for c in data_show.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 c_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
-                show_user_editor(data_show, c_sales, c_fisik, c_stok, c_selisih, t_id, v_now)
+                show_user_editor(data_show, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Toko tidak ditemukan.")
