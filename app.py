@@ -179,7 +179,7 @@ elif st.session_state.page == "REGISTER":
     st.header("📝 Daftar Akun Baru")
     new_nik = st.text_input("NIK (10 Digit):", max_chars=10)
     new_pw = st.text_input("Buat Password:", type="password")
-    st.info("ℹ️ Password minimal 4 digit")
+    st.info("Password minimal 4 digit (huruf/angka)")
     if st.button("Daftar Sekarang", use_container_width=True):
         if len(new_nik) != 10 or not new_nik.isdigit(): st.error("NIK harus 10 digit!")
         elif len(new_pw) < 4: st.error("Password minimal 4 karakter!")
@@ -233,34 +233,54 @@ elif st.session_state.page == "ADMIN":
             st.subheader("📥 Penarikan Data")
             m_df, m_ver = get_master_info()
             if m_df is not None:
-                with st.spinner("Mengecek jumlah toko..."):
-                    res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_")
-                    submitted_files = [r for r in res.get('resources', []) if f"_v{m_ver}" in r['public_id']]
-                    toko_count = len(submitted_files)
+                # --- LOGIKA FETCH SEMUA TOKO (PAGINATION FIX) ---
+                with st.spinner("Mengecek seluruh toko di Cloudinary..."):
+                    all_submitted_files = []
+                    next_cursor = None
+                    while True:
+                        res = cloudinary.api.resources(
+                            resource_type="raw", 
+                            type="upload", 
+                            prefix="so_rawan_hilang/hasil/Hasil_",
+                            max_results=500, # Ambil banyak sekaligus
+                            next_cursor=next_cursor
+                        )
+                        # Filter hanya yang versinya cocok dengan master saat ini
+                        batch = [r for r in res.get('resources', []) if f"_v{m_ver}" in r['public_id']]
+                        all_submitted_files.extend(batch)
+                        
+                        next_cursor = res.get('next_cursor')
+                        if not next_cursor:
+                            break
+                    
+                    toko_count = len(all_submitted_files)
+                
                 if toko_count > 0:
                     st.info(f"📊 **Informasi:** Terdapat **{toko_count}** toko yang sudah mengirimkan laporan.")
                 else:
                     st.warning("ℹ️ Belum ada toko yang mengirimkan laporan.")
 
                 if st.button("🔄 Gabung Data Seluruh Toko", use_container_width=True):
-                    with st.spinner("Sedang menggabungkan data..."):
-                        for r in submitted_files:
+                    with st.spinner(f"Sedang menggabungkan data dari {toko_count} toko..."):
+                        for r in all_submitted_files:
                             s_df = pd.read_excel(r['secure_url'])
                             s_df.columns = [str(c).strip() for c in s_df.columns]
                             for _, row in s_df.iterrows():
                                 mask = (m_df[m_df.columns[2]] == row[s_df.columns[2]]) & (m_df[m_df.columns[0]].astype(str) == str(row[s_df.columns[0]]))
                                 if mask.any(): m_df.loc[mask, s_df.columns] = row.values
+                        
                         buf = io.BytesIO()
                         with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
                         st.session_state.final_excel = buf.getvalue()
                         st.session_state.final_count = toko_count
+                
                 if 'final_excel' in st.session_state:
                     st.download_button(label=f"📥 Download Hasil Rekap ({st.session_state.final_count} Toko)", 
                                        data=st.session_state.final_excel, file_name=f"Rekap_{get_indonesia_date()}.xlsx", use_container_width=True)
-            else: st.info("💡 Belum ada Master Data.")
+            else:
+                st.info("💡 Belum ada Master Data.")
 
         with tab2:
-            st.subheader("📊 Monitoring Aktivitas")
             logs = load_json_db(LOG_DB_PATH)
             if logs:
                 flat_data = []
@@ -271,23 +291,16 @@ elif st.session_state.page == "ADMIN":
         
         with tab3:
             st.subheader("🔐 Reset / Ubah Password User")
-            target_nik = st.text_input("Masukkan NIK karyawan:", key="reset_nik")
-            new_custom_pw = st.text_input("Masukkan Password Baru:", type="password", key="reset_pw")
-            st.caption("ℹ️ Password minimal 4 karakter.")
-
+            target_nik = st.text_input("NIK karyawan:", key="reset_nik")
+            new_custom_pw = st.text_input("Password Baru:", type="password", key="reset_pw")
             if st.button("Simpan Password Baru", use_container_width=True, type="primary"):
-                if not target_nik:
-                    st.error("Silakan masukkan NIK!")
-                elif len(new_custom_pw) < 4:
-                    st.error("Password minimal 4 karakter!")
-                else:
+                if target_nik and len(new_custom_pw) >= 4:
                     db = load_json_db(USER_DB_PATH)
                     if target_nik in db:
                         db[target_nik] = new_custom_pw
-                        if save_json_db(USER_DB_PATH, db):
-                            st.success(f"✅ Password untuk NIK {target_nik} berhasil diubah!")
-                    else:
-                        st.error("NIK tidak ditemukan dalam database!")
+                        if save_json_db(USER_DB_PATH, db): st.success(f"✅ Password NIK {target_nik} diubah!")
+                    else: st.error("NIK tidak ditemukan!")
+                else: st.error("Cek inputan!")
 
 # ==========================================
 #              HALAMAN USER (TOKO)
