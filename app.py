@@ -234,9 +234,16 @@ elif st.session_state.page == "ADMIN":
             m_df, m_ver = get_master_info()
             if m_df is not None:
                 with st.spinner("Mengecek jumlah toko..."):
-                    res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_")
+                    # FIX: Menambahkan max_results=500 agar bisa menarik lebih dari 10 data
+                    res = cloudinary.api.resources(
+                        resource_type="raw", 
+                        type="upload", 
+                        prefix="so_rawan_hilang/hasil/Hasil_",
+                        max_results=500 
+                    )
                     submitted_files = [r for r in res.get('resources', []) if f"_v{m_ver}" in r['public_id']]
                     toko_count = len(submitted_files)
+                
                 if toko_count > 0:
                     st.info(f"📊 **Informasi:** Terdapat **{toko_count}** toko yang sudah mengirimkan laporan.")
                 else:
@@ -273,21 +280,14 @@ elif st.session_state.page == "ADMIN":
             st.subheader("🔐 Reset / Ubah Password User")
             target_nik = st.text_input("Masukkan NIK karyawan:", key="reset_nik")
             new_custom_pw = st.text_input("Masukkan Password Baru:", type="password", key="reset_pw")
-            st.caption("ℹ️ Password minimal 4 karakter.")
-
             if st.button("Simpan Password Baru", use_container_width=True, type="primary"):
-                if not target_nik:
-                    st.error("Silakan masukkan NIK!")
-                elif len(new_custom_pw) < 4:
-                    st.error("Password minimal 4 karakter!")
+                if not target_nik or len(new_custom_pw) < 4: st.error("Lengkapi data!")
                 else:
                     db = load_json_db(USER_DB_PATH)
                     if target_nik in db:
                         db[target_nik] = new_custom_pw
-                        if save_json_db(USER_DB_PATH, db):
-                            st.success(f"✅ Password untuk NIK {target_nik} berhasil diubah!")
-                    else:
-                        st.error("NIK tidak ditemukan dalam database!")
+                        if save_json_db(USER_DB_PATH, db): st.success(f"✅ Berhasil diubah!")
+                    else: st.error("NIK tidak ditemukan!")
 
 # ==========================================
 #              HALAMAN USER (TOKO)
