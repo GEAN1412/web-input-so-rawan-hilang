@@ -341,7 +341,7 @@ elif st.session_state.page == "USER_INPUT":
 
     t_col, b_col = st.columns([3, 1])
     with t_col: 
-        t_id = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="Input 4 Digit").upper()
+        t_id = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="Contoh: TQ86").upper()
     with b_col:
         st.write("##")
         btn_cari = st.button("🔍 Cari Data", use_container_width=True)
@@ -375,4 +375,5 @@ elif st.session_state.page == "USER_INPUT":
             else: 
                 st.error(f"❌ Kode Toko '{st.session_state.active_toko}' tidak ada dalam Master.")
                 st.session_state.user_search_active = False
+
 
