@@ -273,7 +273,7 @@ def get_report_status(m_ver, df_master):
         return list(submitted_codes), not_submitted
     except:
         return [], []
-            if m_df is not None:
+if m_df is not None:
                 # --- LOGIKA FETCH SEMUA TOKO DENGAN PAGINATION (FIX LIMIT 10) ---
                 with st.spinner("Mengecek seluruh toko di Cloudinary..."):
                     all_submitted_files = []
@@ -379,6 +379,7 @@ elif st.session_state.page == "USER_INPUT":
             else:
                 st.error(f"❌ Toko **{st.session_state.active_toko}** tidak ditemukan dalam Master Utama!")
                 st.session_state.user_search_active = False
+
 
 
 
