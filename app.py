@@ -312,7 +312,7 @@ if m_df is not None:
                         with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
                         st.download_button(f"📥 Download Rekap ({toko_count} Toko)", buf.getvalue(), f"Rekap_{get_indonesia_date()}.xlsx", use_container_width=True)
 
-        with tab2:
+with tab2:
             logs = load_json_db(LOG_DB_PATH)
             if logs:
                 flat = [{"NIK": k, "Tanggal": t, "Hits": h} for k, d in logs.items() for t, h in d.items()]
@@ -379,6 +379,7 @@ elif st.session_state.page == "USER_INPUT":
             else:
                 st.error(f"❌ Toko **{st.session_state.active_toko}** tidak ditemukan dalam Master Utama!")
                 st.session_state.user_search_active = False
+
 
 
 
