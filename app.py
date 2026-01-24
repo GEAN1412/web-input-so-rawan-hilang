@@ -212,8 +212,8 @@ if st.session_state.page == "HOME":
         st.subheader("📊 Progres Real-Time Hari Ini")
         m1, m2, m3 = st.columns(3)
         m1.metric("Total Toko", total_toko)
-        m2.metric("Sudah Kirim", jumlah_masuk, delta=f"{jumlah_masuk/total_toko:.1%}")
-        m3.metric("Belum Kirim", jumlah_belum, delta=f"-{jumlah_belum}", delta_color="inverse")
+        m2.metric("Jml Toko Sudah Input So Rawan Hilang", jumlah_masuk, delta=f"{jumlah_masuk/total_toko:.1%}")
+        m3.metric("Jml Toko Belum Input So Rawan Hilang", jumlah_belum, delta=f"-{jumlah_belum}", delta_color="inverse")
         
         st.progress(jumlah_masuk / total_toko if total_toko > 0 else 0)
 
@@ -375,5 +375,6 @@ elif st.session_state.page == "USER_INPUT":
             else: 
                 st.error(f"❌ Kode Toko '{st.session_state.active_toko}' tidak ada dalam Master.")
                 st.session_state.user_search_active = False
+
 
 
