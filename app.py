@@ -317,7 +317,7 @@ with tab2:
             if logs:
                 flat = [{"NIK": k, "Tanggal": t, "Hits": h} for k, d in logs.items() for t, h in d.items()]
                 st.dataframe(pd.DataFrame(flat).sort_values(by="Tanggal", ascending=False), use_container_width=True, hide_index=True)
-        with tab3:
+with tab3:
             t_nik = st.text_input("NIK:"); n_pw = st.text_input("Pass Baru:", type="password")
             if st.button("Simpan"):
                 db = load_json_db(USER_DB_PATH)
@@ -379,6 +379,7 @@ elif st.session_state.page == "USER_INPUT":
             else:
                 st.error(f"❌ Toko **{st.session_state.active_toko}** tidak ditemukan dalam Master Utama!")
                 st.session_state.user_search_active = False
+
 
 
 
