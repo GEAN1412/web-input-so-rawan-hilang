@@ -10,7 +10,7 @@ import json
 from datetime import datetime, timedelta
 
 # =================================================================
-# 1. KONFIGURASI CLOUDINARY
+# 1. KONFIGURASI CLOUDINARY & HIDE UI (ANTI-GITHUB)
 # =================================================================
 try:
     cloudinary.config( 
@@ -23,6 +23,16 @@ except:
     st.error("Konfigurasi Secrets Cloudinary tidak ditemukan!")
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
+# CSS untuk menyembunyikan Header (Logo GitHub & Fork) dan Footer Streamlit
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            header {visibility: hidden;}
+            footer {visibility: hidden;}
+            #stDecoration {display:none !important;}
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
 
 # =================================================================
 # 2. FUNGSI DATABASE (JSON & LOGS)
@@ -365,3 +375,4 @@ elif st.session_state.page == "USER_INPUT":
             else: 
                 st.error(f"❌ Kode Toko '{st.session_state.active_toko}' tidak ada dalam Master.")
                 st.session_state.user_search_active = False
+
