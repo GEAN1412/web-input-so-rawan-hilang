@@ -87,21 +87,35 @@ def load_user_save(toko_id, v_id):
 def confirm_admin_publish(file_obj):
     st.warning("Anda akan Publish Master baru & mereset inputan toko.")
     if st.button("IYA, Publish Sekarang", type="primary", use_container_width=True):
+        msg = st.empty()
+        is_ok = False
         try:
             cloudinary.uploader.upload(file_obj, resource_type="raw", public_id="so_rawan_hilang/master_utama.xlsx", overwrite=True, invalidate=True)
-            st.success("✅ Master Terbit!"); time.sleep(2); st.rerun()
-        except: st.error("Gagal!")
+            msg.success("✅ Master Terbit!")
+            is_ok = True
+        except Exception as e:
+            msg.error(f"Gagal! {e}")
+        
+        if is_ok:
+            time.sleep(2); st.rerun()
 
 @st.dialog("Konfirmasi Simpan")
 def confirm_user_submit(data_toko, toko_code, v_id):
     if st.button("Ya, Simpan ke Cloud", use_container_width=True):
+        msg = st.empty()
+        is_ok = False
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='openpyxl') as w: data_toko.to_excel(w, index=False)
         try:
             p_id = f"so_rawan_hilang/hasil/Hasil_{toko_code}_v{v_id}.xlsx"
             cloudinary.uploader.upload(buf.getvalue(), resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
-            st.success("✅ Berhasil!"); time.sleep(1.5); st.rerun()
-        except: st.error("Gagal!")
+            msg.success("✅ Berhasil Tersimpan!")
+            is_ok = True
+        except Exception as e:
+            msg.error(f"Gagal! {e}")
+        
+        if is_ok:
+            time.sleep(1.5); st.rerun()
 
 # --- 5. FRAGMENT EDITOR ---
 @st.fragment
@@ -301,4 +315,5 @@ elif st.session_state.page == "USER_INPUT":
             else:
                 st.error(f"❌ Toko **{st.session_state.active_toko}** tidak ditemukan dalam Master Utama!")
                 st.session_state.user_search_active = False
+
 
