@@ -328,7 +328,7 @@ with tab3:
 #              HALAMAN USER
 # ==========================================
 elif st.session_state.page == "USER_INPUT":
-    if not st.session_state.logged_in: st.session_state.page = "HOME"; st.rerun()
+if not st.session_state.logged_in: st.session_state.page = "HOME"; st.rerun()
     
     hc, oc = st.columns([5, 1])
     hc.header(f"📋 Menu Input ({st.session_state.user_nik})")
@@ -379,6 +379,7 @@ elif st.session_state.page == "USER_INPUT":
             else:
                 st.error(f"❌ Toko **{st.session_state.active_toko}** tidak ditemukan dalam Master Utama!")
                 st.session_state.user_search_active = False
+
 
 
 
