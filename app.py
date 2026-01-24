@@ -149,11 +149,47 @@ if 'user_search_active' not in st.session_state: st.session_state.user_search_ac
 # ==========================================
 if st.session_state.page == "HOME":
     st.title("📑 Sistem SO Rawan Hilang")
+    
+    # --- PROGRES BAR & METRIC ---
+    df_m, v_now = get_master_info()
+    if v_now:
+        with st.spinner("Menghitung progres toko..."):
+            list_masuk, list_belum = get_report_status(v_now, df_m)
+            total_toko = len(df_m[df_m.columns[0]].unique())
+            jumlah_masuk = len(list_masuk)
+            jumlah_belum = len(list_belum)
+
+        # Tampilan Ringkasan Atas
+        st.subheader("📊 Progres Real-Time")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Total Toko", total_toko)
+        m2.metric("Sudah Kirim", jumlah_masuk, delta=f"{jumlah_masuk/total_toko:.1%}")
+        m3.metric("Belum Kirim", jumlah_belum, delta=f"-{jumlah_belum}", delta_color="inverse")
+        
+        # Progres Bar Visual
+        st.progress(jumlah_masuk / total_toko if total_toko > 0 else 0)
+
+        # Daftar Toko yang Belum Kirim (Dibuat Lipatan agar tidak memenuhi layar)
+        with st.expander(f"🚩 Lihat {jumlah_belum} Toko yang BELUM Kirim"):
+            if jumlah_belum > 0:
+                # Tampilkan dalam 5 kolom agar ringkas
+                cols = st.columns(5)
+                for idx, t_code in enumerate(list_belum):
+                    cols[idx % 5].write(f"• {t_code}")
+            else:
+                st.success("🎉 Semua toko sudah menyelesaikan laporan!")
+    else:
+        st.warning("⚠️ Master data belum tersedia.")
+
     st.divider()
+    # Tombol menu tetap di bawah
     col1, col2, col3 = st.columns(3)
-    if col1.button("🔑 LOGIN KARYAWAN", use_container_width=True, type="primary"): st.session_state.page = "LOGIN"; st.rerun()
-    if col2.button("📝 DAFTAR AKUN", use_container_width=True): st.session_state.page = "REGISTER"; st.rerun()
-    if col3.button("🛡️ ADMIN PANEL", use_container_width=True): st.session_state.page = "ADMIN"; st.rerun()
+    if col1.button("🔑 LOGIN KARYAWAN", use_container_width=True, type="primary"): 
+        st.session_state.page = "LOGIN"; st.rerun()
+    if col2.button("📝 DAFTAR AKUN", use_container_width=True): 
+        st.session_state.page = "REGISTER"; st.rerun()
+    if col3.button("🛡️ ADMIN PANEL", use_container_width=True): 
+        st.session_state.page = "ADMIN"; st.rerun()
 
 # ==========================================
 #              LOGIN & REGISTER
@@ -209,6 +245,35 @@ elif st.session_state.page == "ADMIN":
             st.divider()
             st.subheader("📥 Penarikan Data")
             m_df, m_ver = get_master_info()
+            @st.cache_data(ttl=60) # Data disimpan di memori selama 60 detik
+def get_report_status(m_ver, df_master):
+    try:
+        # 1. Ambil daftar kode toko yang sudah upload dari Cloudinary
+        submitted_codes = set()
+        next_cursor = None
+        while True:
+            res = cloudinary.api.resources(
+                resource_type="raw", type="upload", 
+                prefix="so_rawan_hilang/hasil/Hasil_", 
+                max_results=500, next_cursor=next_cursor
+            )
+            for r in res.get('resources', []):
+                if f"_v{m_ver}" in r['public_id']:
+                    # Ambil kode toko dari nama file (misal: Hasil_1001_v1...)
+                    code = r['public_id'].split('Hasil_')[-1].split('_v')[0]
+                    submitted_codes.add(code)
+            next_cursor = res.get('next_cursor')
+            if not next_cursor: break
+            
+        # 2. Ambil daftar unik seluruh toko dari kolom pertama Master Excel
+        all_stores = set(df_master[df_master.columns[0]].astype(str).unique())
+        
+        # 3. Cari selisihnya (Toko yang ada di master tapi belum ada di Cloudinary)
+        not_submitted = sorted(list(all_stores - submitted_codes))
+        
+        return list(submitted_codes), not_submitted
+    except:
+        return [], []
             if m_df is not None:
                 # --- LOGIKA FETCH SEMUA TOKO DENGAN PAGINATION (FIX LIMIT 10) ---
                 with st.spinner("Mengecek seluruh toko di Cloudinary..."):
@@ -315,5 +380,6 @@ elif st.session_state.page == "USER_INPUT":
             else:
                 st.error(f"❌ Toko **{st.session_state.active_toko}** tidak ditemukan dalam Master Utama!")
                 st.session_state.user_search_active = False
+
 
 
