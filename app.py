@@ -251,31 +251,53 @@ elif st.session_state.page == "ADMIN":
 # ==========================================
 elif st.session_state.page == "USER_INPUT":
     if not st.session_state.logged_in: st.session_state.page = "HOME"; st.rerun()
+    
     hc, oc = st.columns([5, 1])
     hc.header(f"📋 Menu Input ({st.session_state.user_nik})")
     if oc.button("🚪 Logout"): 
         st.session_state.logged_in, st.session_state.user_search_active = False, False
         st.session_state.page = "HOME"; st.rerun()
 
+    # --- Bagian Input & Validasi ---
     t_col, b_col = st.columns([3, 1])
-    with t_col: t_id = st.text_input("📍 Kode Toko:", max_chars=4).upper()
+    with t_col: 
+        t_id = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="Contoh: 1001").upper()
+    
     with b_col:
-        st.write("##")
-        if st.button("🔍 Cari Data", use_container_width=True):
-            if t_id: st.session_state.active_toko, st.session_state.user_search_active = t_id, True
-            else: st.error("Isi Kode!")
+        st.write("##") # Spacer agar tombol sejajar dengan input
+        btn_cari = st.button("🔍 Cari Data", use_container_width=True)
 
+    # --- Logika Validasi ---
+    if t_id:
+        if len(t_id) < 4:
+            st.error(f"⚠️ Kode Toko harus **4 digit**! (Anda baru mengetik {len(t_id)})")
+            st.session_state.user_search_active = False
+        elif btn_cari:
+            st.session_state.active_toko, st.session_state.user_search_active = t_id, True
+
+    st.divider()
+
+    # --- Bagian Menampilkan Editor ---
     if st.session_state.user_search_active:
         df_m, v_now = get_master_info()
         if df_m is not None:
-            df_u = load_user_save(st.session_state.active_toko, v_now)
-            m_filt = df_m[df_m[df_m.columns[0]].astype(str).str.contains(st.session_state.active_toko)].copy()
-            data_show = df_u if df_u is not None else m_filt
-            if not data_show.empty:
+            # GUNAKAN PERBANDINGAN == (EXACT MATCH)
+            # Kolom 0 diasumsikan berisi Kode Toko
+            m_filt = df_m[df_m[df_m.columns[0]].astype(str) == st.session_state.active_toko].copy()
+            
+            if not m_filt.empty:
+                df_u = load_user_save(st.session_state.active_toko, v_now)
+                data_show = df_u if df_u is not None else m_filt
+                
                 st.subheader(f"🏠 Toko: {st.session_state.active_toko}")
+                
+                # Deteksi Nama Kolom
                 c_stok = next((c for c in data_show.columns if 'stok' in c.lower()), 'Stok H-1')
                 c_sales = next((c for c in data_show.columns if 'sales' in c.lower()), 'Query Sales')
                 c_fisik = next((c for c in data_show.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 c_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
+                
                 show_user_editor(data_show, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
-            else: st.error("Toko tidak ditemukan.")
+            else:
+                st.error(f"❌ Toko **{st.session_state.active_toko}** tidak ditemukan dalam Master Utama!")
+                st.session_state.user_search_active = False
