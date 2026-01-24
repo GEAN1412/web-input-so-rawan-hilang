@@ -245,10 +245,9 @@ elif st.session_state.page == "ADMIN":
             st.divider()
             st.subheader("📥 Penarikan Data")
             m_df, m_ver = get_master_info()
-            @st.cache_data(ttl=60) # Data disimpan di memori selama 60 detik
-def get_report_status(m_ver, df_master):
+            @st.cache_data(ttl=60)
+    def get_report_status(m_ver, df_master):
     try:
-        # 1. Ambil daftar kode toko yang sudah upload dari Cloudinary
         submitted_codes = set()
         next_cursor = None
         while True:
@@ -380,6 +379,7 @@ elif st.session_state.page == "USER_INPUT":
             else:
                 st.error(f"❌ Toko **{st.session_state.active_toko}** tidak ditemukan dalam Master Utama!")
                 st.session_state.user_search_active = False
+
 
 
 
