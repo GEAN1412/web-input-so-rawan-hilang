@@ -261,7 +261,7 @@ elif st.session_state.page == "USER_INPUT":
     # --- Bagian Input & Validasi ---
     t_col, b_col = st.columns([3, 1])
     with t_col: 
-        t_id = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="Contoh: 1001").upper()
+        t_id = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="Contoh: TQ86").upper()
     
     with b_col:
         st.write("##") # Spacer agar tombol sejajar dengan input
@@ -301,3 +301,4 @@ elif st.session_state.page == "USER_INPUT":
             else:
                 st.error(f"❌ Toko **{st.session_state.active_toko}** tidak ditemukan dalam Master Utama!")
                 st.session_state.user_search_active = False
+
