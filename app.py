@@ -293,7 +293,7 @@ elif st.session_state.page == "USER_INPUT":
     if not st.session_state.logged_in: st.session_state.page = "HOME"; st.rerun()
     hc, oc = st.columns([5, 1]); hc.header(f"📋 Input SO ({st.session_state.user_nik})")
     if oc.button("🚪 Logout"): st.session_state.logged_in = False; st.session_state.page = "HOME"; st.rerun()
-    t_id = st.text_input("📍 Kode Toko:", max_chars=4).upper()
+    t_id = st.text_input("📍 Kode Toko:"Contoh:TQ86", max_chars=4).upper()
     if st.button("🔍 Cari"):
         if len(t_id) == 4: st.session_state.active_toko, st.session_state.user_search_active = t_id, True
         else: st.error("Isi 4 digit!")
@@ -310,3 +310,4 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data_show, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Toko tidak ada.")
+
