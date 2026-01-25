@@ -174,7 +174,7 @@ def show_user_editor(df_in, c_sales, c_fisik, c_stok, c_selisih, toko_id, v_now)
             c_stok: st.column_config.NumberColumn(c_stok, format="%d"),
         }, disabled=[c for c in df_in.columns if c not in [c_sales, c_fisik]], hide_index=True, use_container_width=True, key=f"ed_{toko_id}")
     if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
-        if edited[c_sales].isnull().any() or edited[c_fisik].isnull().any(): st.error("⚠️ Data kosong!")
+        if edited[c_sales].isnull().any() or edited[c_fisik].isnull().any(): st.error("⚠️ Masih Ada Kolom Yang Kosong!")
         else:
             vs, vf, vh = edited[c_sales].fillna(0).astype(int), edited[c_fisik].fillna(0).astype(int), edited[c_stok].fillna(0).astype(int)
             edited[c_selisih] = (vs + vf) - vh
@@ -310,6 +310,7 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data_show, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Toko tidak ada.")
+
 
 
 
