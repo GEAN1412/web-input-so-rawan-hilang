@@ -267,8 +267,11 @@ elif st.session_state.page == "ADMIN":
                             s_df = pd.read_excel(r['secure_url'])
                             s_df.columns = [str(c).strip() for c in s_df.columns]
                             for _, row in s_df.iterrows():
-                                mask = (m_df[m_df.columns[2]] == row[s_df.columns[2]]) & (m_df[m_df.columns[0]].astype(str) == str(row[s_df.columns[0]]))
-                                if mask.any(): m_df.loc[mask, s_df.columns] = row.values
+                        try:
+                            mask = (m_df['Prdcd'].astype(str) == str(row['Prdcd'])) & \
+                                   (m_df[m_df.columns[0]].astype(str) == str(row[s_df.columns[0]]))
+                            if mask.any(): m_df.loc[mask, s_df.columns] = row.values
+                        except: pass
                         buf = io.BytesIO()
                         with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
                         st.download_button("📥 Download Rekap", buf.getvalue(), f"Rekap_{get_indonesia_date()}.xlsx")
@@ -310,6 +313,7 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data_show, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Toko tidak ada.")
+
 
 
 
