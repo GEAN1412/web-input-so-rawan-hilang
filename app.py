@@ -100,7 +100,6 @@ def load_user_save(toko_id, v_id):
 @st.cache_data(ttl=60)
 def get_as_detailed_status(m_ver, df_master):
     try:
-        # 1. Ambil data upload dari Cloudinary
         submitted_codes = set()
         res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_", max_results=500)
         for r in res.get('resources', []):
@@ -108,14 +107,23 @@ def get_as_detailed_status(m_ver, df_master):
                 code = r['public_id'].split('Hasil_')[-1].split('_v')[0]
                 submitted_codes.add(code)
         
-        # 2. Map data Master (Kolom 0: Toko, Kolom 1: Nama, Kolom AS)
+        # Menggunakan kolom 'As' (A besar, s kecil) sesuai data Anda
         df_stores = df_master[[df_master.columns[0], df_master.columns[1], 'As']].drop_duplicates()
-        df_stores.columns = ['Kode', 'Nama', 'AS']
-        df_stores['Status'] = df_stores['Kode'].astype(str).apply(lambda x: 'Sudah' if x in submitted_codes else 'Belum')
+        df_stores.columns = ['Kode', 'Nama', 'As']
+        df_stores['Status'] = df_stores['Kode'].astype(str).apply(lambda x: 1 if x in submitted_codes else 0)
         
-        return df_stores
+        # Buat Ringkasan per Wilayah
+        summary = df_stores.groupby('As').agg(
+            Total=('Kode', 'count'),
+            Sudah=('Status', 'sum')
+        ).reset_index()
+        summary['Belum'] = summary['Total'] - summary['Sudah']
+        summary['Progres (%)'] = (summary['Sudah'] / summary['Total']) * 100
+        
+        return df_stores, summary
     except Exception as e:
-        return pd.DataFrame()
+        st.error(f"Gagal memproses data: {e}")
+        return pd.DataFrame(), pd.DataFrame()
 
 def delete_old_reports(current_ver):
     try:
@@ -187,57 +195,61 @@ if st.session_state.active_toko is False: st.session_state.active_toko = ""
 # --- 5A. HALAMAN HOME ---
 if st.session_state.page == "HOME":
     st.title("📑 Sistem SO Rawan Hilang")
-    
-    # Ambil data master
     df_m, v_now = get_master_info()
     
     if v_now and df_m is not None:
-        with st.spinner("Sinkronisasi data wilayah..."):
-            df_status = get_as_detailed_status(v_now, df_m)
+        with st.spinner("Memuat data wilayah..."):
+            df_full, df_summary = get_as_detailed_status(v_now, df_m)
             
-            if not df_status.empty:
+            if not df_summary.empty:
                 # --- A. METRIK GLOBAL ---
-                total_toko = len(df_status)
-                sudah = len(df_status[df_status['Status'] == 'Sudah'])
+                total_toko = df_summary['Total'].sum()
+                sudah = df_summary['Sudah'].sum()
                 belum = total_toko - sudah
                 
-                st.subheader("📊 Ringkasan Progres Global")
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Total Toko", total_toko)
-                m2.metric("Sudah Input", sudah, delta=f"$ {sudah/total_toko:.1%} $")
+                m2.metric("Sudah Input", sudah, delta=f"{(sudah/total_toko):.1%}")
                 m3.metric("Belum Input", belum, delta=f"-{belum}", delta_color="inverse")
+                st.progress(sudah / total_toko)
                 
-                st.progress(sudah / total_toko if total_toko > 0 else 0)
-                
-                # --- B. DETAIL PER AS ---
                 st.divider()
-                st.subheader("📍 Monitoring per Wilayah AS")
-                st.caption("Klik wilayah untuk melihat rincian toko yang belum kirim.")
-                
-                list_as = sorted(df_status['AS'].unique())
-                for as_name in list_as:
-                    df_as = df_status[df_status['AS'] == as_name]
-                    tot_as, sud_as = len(df_as), len(df_as[df_as['Status'] == 'Sudah'])
-                    bel_as = tot_as - sud_as
-                    persen_as = (sud_as / tot_as) * 100
-                    
-                    label = f"AS {as_name} — {sud_as}/{tot_as} Toko ({persen_as:.0f}%)"
-                    
-                    with st.expander(label):
-                        if bel_as > 0:
-                            st.write(f"⚠️ **{bel_as} Toko Belum Input:**")
-                            # Hanya tampilkan Kode dan Nama yang Belum
-                            df_target = df_as[df_as['Status'] == 'Belum'][['Kode', 'Nama']].reset_index(drop=True)
-                            st.table(df_target)
-                        else:
-                            st.success(f"✅ Wilayah {as_name} sudah 100% selesai!")
-            else:
-                st.error("⚠️ Data statistik tidak dapat diproses. Cek kolom 'AS' di Master Utama Anda.")
-    else:
-        st.warning("⚠️ Master data belum tersedia atau koneksi Cloudinary terputus.")
 
+                # --- B. TABEL RINGKASAN (Compact Overview) ---
+                st.subheader("📊 Ringkasan Kepatuhan per Wilayah")
+                st.dataframe(
+                    df_summary,
+                    column_config={
+                        "As": "📍 Wilayah",
+                        "Progres (%)": st.column_config.ProgressColumn(
+                            "Progres", format="%d%%", min_value=0, max_value=100
+                        ),
+                        "Total": st.column_config.NumberColumn("Total", format="%d"),
+                        "Sudah": st.column_config.NumberColumn("✅", format="%d"),
+                        "Belum": st.column_config.NumberColumn("⚠️", format="%d"),
+                    },
+                    hide_index=True, use_container_width=True
+                )
+
+                # --- C. SEARCHABLE DROPDOWN (Detail Detail) ---
+                st.divider()
+                st.subheader("🔍 Cek Detail Toko Belum Input")
+                
+                # Filter wilayah yang belum 100% saja agar lebih fokus
+                wilayah_pending = df_summary[df_summary['Belum'] > 0]['As'].unique()
+                
+                if len(wilayah_pending) > 0:
+                    selected_as = st.selectbox("Pilih Wilayah untuk melihat daftar toko:", wilayah_pending)
+                    
+                    if selected_as:
+                        # Tampilkan toko yang belum input di wilayah terpilih
+                        toko_pending = df_full[(df_full['As'] == selected_as) & (df_full['Status'] == 0)]
+                        st.warning(f"Terdapat **{len(toko_pending)} toko** di wilayah **{selected_as}** yang belum input:")
+                        st.table(toko_pending[['Kode', 'Nama']].reset_index(drop=True))
+                else:
+                    st.success("🎉 Luar biasa! Semua wilayah sudah menyelesaikan Stock Opname.")
     st.divider()
-    # Tombol Navigasi Utama
+    # Tombol Navigasi
     c1, c2, c3 = st.columns(3)
     if c1.button("🔑 LOGIN", use_container_width=True, type="primary"): 
         st.session_state.page = "LOGIN"; st.rerun()
