@@ -24,15 +24,15 @@ except:
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
-hide_st_style = """
-            <style>
-            #MainMenu {visibility: hidden;}
-            header {visibility: hidden;}
-            footer {visibility: hidden;}
-            #stDecoration {display:none !important;}
-            </style>
-            """
-st.markdown(hide_st_style, unsafe_allow_html=True)
+# CSS untuk menyembunyikan elemen bawaan Streamlit
+st.markdown("""
+    <style>
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    #stDecoration {display:none !important;}
+    </style>
+    """, unsafe_allow_html=True)
 
 # =================================================================
 # 2. FUNGSI DATABASE (JSON & LOGS)
@@ -65,7 +65,7 @@ def record_login_hit(nik):
     save_json_db(LOG_DB_PATH, db_logs)
 
 # =================================================================
-# 3. FUNGSI OLAH EXCEL & DASHBOARD
+# 3. FUNGSI OLAH EXCEL & DASHBOARD (LOGIKA PER AS)
 # =================================================================
 def get_indonesia_date():
     bulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
@@ -85,7 +85,6 @@ def get_master_info():
             df.columns = [str(c).strip() for c in df.columns]
             return df, v_id
     except: return None, None
-    return None, None
 
 def load_user_save(toko_id, v_id):
     try:
@@ -98,8 +97,26 @@ def load_user_save(toko_id, v_id):
             return df
     except: return None
 
+@st.cache_data(ttl=60)
+def get_as_detailed_status(m_ver, df_master):
+    """Menghitung progres per AS dan memisahkan toko yang belum kirim."""
+    try:
+        submitted_codes = set()
+        res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_", max_results=500)
+        for r in res.get('resources', []):
+            if f"_v{m_ver}" in r['public_id']:
+                code = r['public_id'].split('Hasil_')[-1].split('_v')[0]
+                submitted_codes.add(code)
+        
+        # Ambil kolom Toko, Nama, dan AS (Sesuaikan urutan kolom master Anda)
+        df_stores = df_master[[df_master.columns[0], df_master.columns[1], 'AS']].drop_duplicates()
+        df_stores.columns = ['Kode', 'Nama', 'AS']
+        df_stores['Status'] = df_stores['Kode'].astype(str).apply(lambda x: 'Sudah' if x in submitted_codes else 'Belum')
+        
+        return df_stores
+    except: return pd.DataFrame()
+
 def delete_old_reports(current_ver):
-    """Fungsi mandiri untuk menghapus data lama."""
     try:
         resources = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_", max_results=500)
         deleted_count = 0
@@ -110,58 +127,37 @@ def delete_old_reports(current_ver):
         return True, deleted_count
     except Exception as e: return False, str(e)
 
-@st.cache_data(ttl=60)
-def get_report_status(m_ver, df_master):
-    try:
-        submitted_codes = set()
-        next_cursor = None
-        while True:
-            res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_", max_results=500, next_cursor=next_cursor)
-            for r in res.get('resources', []):
-                if f"_v{m_ver}" in r['public_id']:
-                    code = r['public_id'].split('Hasil_')[-1].split('_v')[0]
-                    submitted_codes.add(code)
-            next_cursor = res.get('next_cursor')
-            if not next_cursor: break
-        all_stores = set(df_master[df_master.columns[0]].astype(str).unique())
-        not_submitted = sorted(list(all_stores - submitted_codes))
-        return list(submitted_codes), not_submitted
-    except: return [], []
-
 # =================================================================
 # 4. DIALOGS & FRAGMENTS
 # =================================================================
 @st.dialog("🗑️ Bersihkan Data Lama")
 def confirm_delete_old_data(v_now):
-    st.error("⚠️ PERINGATAN: Semua hasil input dari periode SEBELUMNYA akan dihapus permanen.")
-    if st.button("IYA, Hapus Data Lama", type="primary", use_container_width=True):
-        with st.spinner("Membersihkan..."):
-            success, result = delete_old_reports(v_now)
-            if success:
-                st.success(f"✅ Berhasil menghapus {result} file!"); time.sleep(2); st.rerun()
-            else: st.error(f"Gagal: {result}")
+    st.error("⚠️ Semua hasil input dari periode SEBELUMNYA akan dihapus permanen.")
+    if st.button("IYA, Hapus Sekarang", type="primary", use_container_width=True):
+        success, result = delete_old_reports(v_now)
+        if success:
+            st.success(f"✅ Berhasil menghapus {result} file!"); time.sleep(2); st.rerun()
+        else: st.error(f"Gagal: {result}")
 
 @st.dialog("⚠️ Konfirmasi Publish Master")
 def confirm_admin_publish(file_obj):
-    st.warning("Anda akan Publish Master baru & mereset progres toko hari ini.")
+    st.warning("Publish Master baru akan mereset progres toko hari ini.")
     if st.button("IYA, Publish Sekarang", type="primary", use_container_width=True):
-        msg = st.empty()
         try:
             cloudinary.uploader.upload(file_obj, resource_type="raw", public_id="so_rawan_hilang/master_utama.xlsx", overwrite=True, invalidate=True)
-            msg.success("✅ Master Berhasil Terbit!"); time.sleep(2); st.rerun()
-        except Exception as e: msg.error(f"Gagal Upload: {e}")
+            st.success("✅ Master Terbit!"); time.sleep(2); st.rerun()
+        except Exception as e: st.error(f"Gagal: {e}")
 
 @st.dialog("Konfirmasi Simpan")
 def confirm_user_submit(data_toko, toko_code, v_id):
     if st.button("Ya, Simpan ke Cloud", use_container_width=True):
-        msg = st.empty()
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='openpyxl') as w: data_toko.to_excel(w, index=False)
         try:
             p_id = f"so_rawan_hilang/hasil/Hasil_{toko_code}_v{v_id}.xlsx"
             cloudinary.uploader.upload(buf.getvalue(), resource_type="raw", public_id=p_id, overwrite=True, invalidate=True)
-            msg.success("✅ Tersimpan!"); time.sleep(1.5); st.rerun()
-        except Exception as e: msg.error(f"Gagal: {e}")
+            st.success("✅ Tersimpan!"); time.sleep(1.5); st.rerun()
+        except Exception as e: st.error(f"Gagal: {e}")
 
 @st.fragment
 def show_user_editor(df_in, c_sales, c_fisik, c_stok, c_selisih, toko_id, v_now):
@@ -174,7 +170,7 @@ def show_user_editor(df_in, c_sales, c_fisik, c_stok, c_selisih, toko_id, v_now)
             c_stok: st.column_config.NumberColumn(c_stok, format="%d"),
         }, disabled=[c for c in df_in.columns if c not in [c_sales, c_fisik]], hide_index=True, use_container_width=True, key=f"ed_{toko_id}")
     if st.button("🚀 Simpan Laporan", type="primary", use_container_width=True):
-        if edited[c_sales].isnull().any() or edited[c_fisik].isnull().any(): st.error("⚠️ Masih Ada Kolom Yang Kosong!")
+        if edited[c_sales].isnull().any() or edited[c_fisik].isnull().any(): st.error("⚠️ Data belum lengkap!")
         else:
             vs, vf, vh = edited[c_sales].fillna(0).astype(int), edited[c_fisik].fillna(0).astype(int), edited[c_stok].fillna(0).astype(int)
             edited[c_selisih] = (vs + vf) - vh
@@ -183,140 +179,130 @@ def show_user_editor(df_in, c_sales, c_fisik, c_stok, c_selisih, toko_id, v_now)
 # =================================================================
 # 5. SISTEM STATE & ROUTING
 # =================================================================
-for key in ['page', 'logged_in', 'user_nik', 'admin_auth', 'user_search_active']:
+for key in ['page', 'logged_in', 'user_nik', 'admin_auth', 'user_search_active', 'active_toko']:
     if key not in st.session_state: st.session_state[key] = False if 'auth' in key or 'in' in key or 'active' in key else "HOME"
+if st.session_state.active_toko is False: st.session_state.active_toko = ""
 
+# --- 5A. HALAMAN HOME ---
 if st.session_state.page == "HOME":
     st.title("📑 Sistem SO Rawan Hilang")
     df_m, v_now = get_master_info()
     if v_now:
-        with st.spinner("Loading..."):
-            list_masuk, list_belum = get_report_status(v_now, df_m)
-            total_toko = len(df_m[df_m.columns[0]].unique())
-            st.subheader("📊 Progres Real-Time")
-            m1, m2, m3 = st.columns(3)
-            m1.metric("Total Toko", total_toko)
-            m2.metric("Jml Toko Sudah Input", len(list_masuk), delta=f"{len(list_masuk)/total_toko:.1%}")
-            m3.metric("Jml Toko Belum Input", len(list_belum), delta=f"-{len(list_belum)}", delta_color="inverse")
-            st.progress(len(list_masuk) / total_toko if total_toko > 0 else 0)
-            with st.expander(f"🚩 Lihat {len(list_belum)} Toko Belum Kirim"):
-                if list_belum:
-                    cols = st.columns(5)
-                    for idx, t_code in enumerate(list_belum): cols[idx % 5].write(f"• {t_code}")
-                else: st.success("🎉 Selesai!")
-    else: st.warning("⚠️ Master data belum terbit.")
+        with st.spinner("Sinkronisasi progres wilayah..."):
+            df_status = get_as_detailed_status(v_now, df_m)
+            if not df_status.empty:
+                # METRIK GLOBAL
+                total_toko = len(df_status)
+                sudah = len(df_status[df_status['Status'] == 'Sudah'])
+                belum = total_toko - sudah
+                st.subheader("📊 Ringkasan Progres Global")
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Total Toko", total_toko)
+                m2.metric("Sudah Input", sudah, delta=f"{sudah/total_toko:.1%}")
+                m3.metric("Belum Input", belum, delta=f"-{belum}", delta_color="inverse")
+                st.progress(sudah / total_toko)
+                
+                # RINCIAN PER AS (Lipatan/Expander)
+                st.divider()
+                st.subheader("📍 Daftar Toko Belum Input per AS")
+                list_as = sorted(df_status['AS'].unique())
+                for as_name in list_as:
+                    df_as = df_status[df_status['AS'] == as_name]
+                    tot_as, sud_as = len(df_as), len(df_as[df_as['Status'] == 'Sudah'])
+                    bel_as = tot_as - sud_as
+                    with st.expander(f"AS {as_name} — {sud_as}/{tot_as} Toko ({sud_as/tot_as:.0%})"):
+                        if bel_as > 0:
+                            st.table(df_as[df_as['Status'] == 'Belum'][['Kode', 'Nama']].reset_index(drop=True))
+                        else: st.success(f"✅ Wilayah {as_name} Selesai!")
+    else: st.warning("⚠️ Master data belum tersedia.")
     st.divider()
-    col1, col2, col3 = st.columns(3)
-    if col1.button("🔑 LOGIN", use_container_width=True, type="primary"): st.session_state.page = "LOGIN"; st.rerun()
-    if col2.button("📝 DAFTAR", use_container_width=True): st.session_state.page = "REGISTER"; st.rerun()
-    if col3.button("🛡️ ADMIN", use_container_width=True): st.session_state.page = "ADMIN"; st.rerun()
+    c1, c2, c3 = st.columns(3)
+    if c1.button("🔑 LOGIN", use_container_width=True, type="primary"): st.session_state.page = "LOGIN"; st.rerun()
+    if c2.button("📝 DAFTAR", use_container_width=True): st.session_state.page = "REGISTER"; st.rerun()
+    if c3.button("🛡️ ADMIN", use_container_width=True): st.session_state.page = "ADMIN"; st.rerun()
 
+# --- 5B. REGISTER & LOGIN ---
 elif st.session_state.page == "REGISTER":
-    st.header("📝 Daftar Akun")
+    st.header("📝 Daftar")
     n_nik = st.text_input("NIK (10 Digit):", max_chars=10)
     n_pw = st.text_input("Password:", type="password")
-    if st.button("Daftar"):
+    if st.button("Daftar Sekarang"):
         if len(n_nik) == 10 and n_nik.isdigit():
             db = load_json_db(USER_DB_PATH)
             if n_nik not in db:
                 db[n_nik] = n_pw
-                if save_json_db(USER_DB_PATH, db): st.success("✅ Berhasil!"); time.sleep(2); st.session_state.page = "LOGIN"; st.rerun()
-            else: st.error("NIK ada!")
-        else: st.error("NIK salah!")
+                if save_json_db(USER_DB_PATH, db): st.success("✅ Berhasil!"); time.sleep(1); st.session_state.page = "LOGIN"; st.rerun()
+            else: st.error("NIK Terdaftar!")
     if st.button("⬅️ Kembali"): st.session_state.page = "HOME"; st.rerun()
 
 elif st.session_state.page == "LOGIN":
     st.header("🔑 Login")
-    l_nik = st.text_input("NIK:", max_chars=10)
-    l_pw = st.text_input("Password:", type="password")
+    l_nik = st.text_input("NIK:", max_chars=10); l_pw = st.text_input("Password:", type="password")
     if st.button("Masuk", type="primary"):
         db = load_json_db(USER_DB_PATH)
         if l_nik in db and db[l_nik] == l_pw:
             record_login_hit(l_nik)
             st.session_state.logged_in, st.session_state.user_nik, st.session_state.page = True, l_nik, "USER_INPUT"; st.rerun()
-        else: st.error("Salah!")
+        else: st.error("Gagal!")
     if st.button("⬅️ Kembali"): st.session_state.page = "HOME"; st.rerun()
 
+# --- 5C. ADMIN PANEL ---
 elif st.session_state.page == "ADMIN":
-    hc, oc = st.columns([5, 1])
-    hc.header("🛡️ Admin Panel")
+    hc, oc = st.columns([5, 1]); hc.header("🛡️ Admin Panel")
     if oc.button("🚪 Logout"): st.session_state.admin_auth, st.session_state.page = False, "HOME"; st.rerun()
     if not st.session_state.admin_auth:
-        pw = st.text_input("Password Admin:", type="password")
+        pw = st.text_input("Admin PW:", type="password")
         if st.button("Buka"):
             if pw == "icnkl034": st.session_state.admin_auth = True; st.rerun()
-            else: st.error("Salah!")
     else:
         t1, t2, t3 = st.tabs(["📤 Master & Rekap", "📊 Monitoring", "🔐 Reset"])
         with t1:
-            st.subheader("Update Master")
-            f_adm = st.file_uploader("Upload Excel", type=["xlsx"])
-            if f_adm and st.button("🚀 Publish Master"): confirm_admin_publish(f_adm)
+            f = st.file_uploader("Upload Master", type=["xlsx"])
+            if f and st.button("🚀 Publish Master"): confirm_admin_publish(f)
             st.divider()
-            st.subheader("📥 Penarikan Data")
             m_df, m_ver = get_master_info()
             if m_df is not None:
-                with st.spinner("Checking..."):
-                    all_f = []
-                    res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_", max_results=500)
-                    all_f = [r for r in res.get('resources', []) if f"_v{m_ver}" in r['public_id']]
-                if all_f:
-                    st.info(f"📊 Ada {len(all_f)} laporan.")
-                    if st.button("🔄 Gabung & Download"):
-                        for r in all_f:
-                            s_df = pd.read_excel(r['secure_url'])
-                            s_df.columns = [str(c).strip() for c in s_df.columns]
-                            for _, row in s_df.iterrows():
-                                try:
-                                    mask = (m_df['Prdcd'].astype(str) == str(row['Prdcd'])) & \
-                                           (m_df[m_df.columns[0]].astype(str) == str(row[s_df.columns[0]]))
-                                    if mask.any(): m_df.loc[mask, s_df.columns] = row.values
-                                except: pass
-                        buf = io.BytesIO()
-                        with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
-                        st.download_button("📥 Download Rekap", buf.getvalue(), f"Rekap_{get_indonesia_date()}.xlsx")
-                else: st.warning("Belum ada laporan.")
+                res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_", max_results=500)
+                all_f = [r for r in res.get('resources', []) if f"_v{m_ver}" in r['public_id']]
+                if all_f and st.button(f"🔄 Gabung & Download ({len(all_f)} Toko)"):
+                    for r in all_f:
+                        s_df = pd.read_excel(r['secure_url']); s_df.columns = [str(c).strip() for c in s_df.columns]
+                        for _, row in s_df.iterrows():
+                            mask = (m_df['Prdcd'].astype(str) == str(row['Prdcd'])) & (m_df[m_df.columns[0]].astype(str) == str(row[s_df.columns[0]]))
+                            if mask.any(): m_df.loc[mask, s_df.columns] = row.values
+                    buf = io.BytesIO()
+                    with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
+                    st.download_button("📥 Download Rekap", buf.getvalue(), f"Rekap_{get_indonesia_date()}.xlsx")
             st.divider()
-            st.subheader("🧹 Pembersihan")
             if st.button("🗑️ Hapus Inputan Lama", use_container_width=True):
                 if m_ver: confirm_delete_old_data(m_ver)
-                else: st.error("Master missing.")
         with t2:
             logs = load_json_db(LOG_DB_PATH)
             if logs:
                 flat = [{"NIK": k, "Tanggal": t, "Hits": h} for k, d in logs.items() for t, h in d.items()]
                 st.dataframe(pd.DataFrame(flat).sort_values(by="Tanggal", ascending=False), hide_index=True)
-        with t3:
-            r_nik = st.text_input("NIK:"); r_pw = st.text_input("New PW:", type="password")
-            if st.button("Reset"):
-                db = load_json_db(USER_DB_PATH)
-                if r_nik in db: db[r_nik] = r_pw; save_json_db(USER_DB_PATH, db); st.success("OK!")
 
+# --- 5D. USER INPUT ---
 elif st.session_state.page == "USER_INPUT":
     if not st.session_state.logged_in: st.session_state.page = "HOME"; st.rerun()
     hc, oc = st.columns([5, 1]); hc.header(f"📋 Input SO ({st.session_state.user_nik})")
-    if oc.button("🚪 Logout"): st.session_state.logged_in = False; st.session_state.user_search_active = False; st.session_state.active_toko = ""; st.session_state.page = "HOME"; st.rerun()
-    t_id = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="Contoh: TQ86").upper()
+    if oc.button("🚪 Logout"): 
+        st.session_state.logged_in, st.session_state.user_search_active, st.session_state.active_toko = False, False, ""
+        st.session_state.page = "HOME"; st.rerun()
+    t_in = st.text_input("📍 Kode Toko:", max_chars=4, value=st.session_state.active_toko).upper()
     if st.button("🔍 Cari"):
-        if len(t_id) == 4: st.session_state.active_toko, st.session_state.user_search_active = t_id, True
-        else: st.error("Isi 4 digit!")
+        if len(t_in) == 4: st.session_state.active_toko, st.session_state.user_search_active = t_in, True
+        else: st.error("4 Digit!")
     if st.session_state.user_search_active:
         df_m, v_now = get_master_info()
         if df_m is not None:
             m_filt = df_m[df_m[df_m.columns[0]].astype(str) == st.session_state.active_toko].copy()
             if not m_filt.empty:
-                data_show = load_user_save(st.session_state.active_toko, v_now)
-                if data_show is None: data_show = m_filt
-                c_stok = next((c for c in data_show.columns if 'stok' in c.lower()), 'Stok')
-                c_sales = next((c for c in data_show.columns if 'sales' in c.lower()), 'Sales')
-                c_fisik = next((c for c in data_show.columns if 'fisik' in c.lower()), 'Fisik')
-                c_selisih = next((c for c in data_show.columns if 'selisih' in c.lower()), 'Selisih')
-                show_user_editor(data_show, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
-            else: st.error("Toko tidak ada.")
-
-
-
-
-
-
-
+                data = load_user_save(st.session_state.active_toko, v_now)
+                if data is None: data = m_filt
+                c_stok = next((c for c in data.columns if 'stok' in c.lower()), 'Stok')
+                c_sales = next((c for c in data.columns if 'sales' in c.lower()), 'Sales')
+                c_fisik = next((c for c in data.columns if 'fisik' in c.lower()), 'Fisik')
+                c_selisih = next((c for c in data.columns if 'selisih' in c.lower()), 'Selisih')
+                show_user_editor(data, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
+            else: st.error("Tidak ada!")
