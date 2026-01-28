@@ -216,7 +216,7 @@ if st.session_state.page == "HOME":
                     column_config={
                         "As": "📍 Wilayah",
                         "Progres (%)": st.column_config.ProgressColumn("Progres", format="%d%%", min_value=0, max_value=100),
-                        "Total": st.column_config.NumberColumn("Total", format="%d"),
+                        "Total": st.column_config.NumberColumn("Total Toko SO", format="%d"),
                         "Sudah": st.column_config.NumberColumn("Sudah Input", format="%d"),
                         "Belum": st.column_config.NumberColumn("Belum Input", format="%d"),
                     }, hide_index=True, use_container_width=True
@@ -227,7 +227,7 @@ if st.session_state.page == "HOME":
                 wilayah_pending = df_summary[df_summary['Belum'] > 0]['As'].unique()
                 
                 if len(wilayah_pending) > 0:
-                    selected_as = st.selectbox("Pilih Wilayah untuk melihat daftar toko:", wilayah_pending)
+                    selected_as = st.selectbox("Pilih AS untuk melihat daftar toko:", wilayah_pending)
                     if selected_as:
                         toko_pending = df_full[(df_full['As'] == selected_as) & (df_full['Status'] == 0)]
                         st.warning(f"Terdapat **{len(toko_pending)} toko** di wilayah **{selected_as}** yang belum input:")
@@ -330,3 +330,4 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Tidak ada!")
+
