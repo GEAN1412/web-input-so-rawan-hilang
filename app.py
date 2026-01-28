@@ -109,7 +109,7 @@ def get_as_detailed_status(m_ver, df_master):
                 submitted_codes.add(code)
         
         # 2. Map data Master (Kolom 0: Toko, Kolom 1: Nama, Kolom AS)
-        df_stores = df_master[[df_master.columns[0], df_master.columns[1], 'AS']].drop_duplicates()
+        df_stores = df_master[[df_master.columns[0], df_master.columns[1], 'As']].drop_duplicates()
         df_stores.columns = ['Kode', 'Nama', 'AS']
         df_stores['Status'] = df_stores['Kode'].astype(str).apply(lambda x: 'Sudah' if x in submitted_codes else 'Belum')
         
