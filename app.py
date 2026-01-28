@@ -120,7 +120,6 @@ def get_as_detailed_status(m_ver, df_master):
         
         return df_stores, summary
     except Exception as e:
-        st.error(f"Gagal memproses data: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
 def delete_old_reports(current_ver):
@@ -184,12 +183,13 @@ def show_user_editor(df_in, c_sales, c_fisik, c_stok, c_selisih, toko_id, v_now)
             confirm_user_submit(edited, toko_id, v_now)
 
 # =================================================================
-# 6. ROUTING & HOME
+# 5. SISTEM STATE & ROUTING
 # =================================================================
 for key in ['page', 'logged_in', 'user_nik', 'admin_auth', 'user_search_active', 'active_toko']:
     if key not in st.session_state: st.session_state[key] = False if 'auth' in key or 'in' in key or 'active' in key else "HOME"
 if st.session_state.active_toko is False: st.session_state.active_toko = ""
 
+# --- 5A. HALAMAN HOME ---
 if st.session_state.page == "HOME":
     st.title("📑 Sistem SO Rawan Hilang")
     df_m, v_now = get_master_info()
@@ -199,6 +199,7 @@ if st.session_state.page == "HOME":
             df_full, df_summary = get_as_detailed_status(v_now, df_m)
             
             if not df_summary.empty:
+                # METRIK GLOBAL
                 total_toko = df_summary['Total'].sum()
                 sudah = df_summary['Sudah'].sum()
                 belum = total_toko - sudah
@@ -207,7 +208,7 @@ if st.session_state.page == "HOME":
                 m1.metric("Total Toko", total_toko)
                 m2.metric("Sudah Input", sudah, delta=f"{(sudah/total_toko):.1%}")
                 m3.metric("Belum Input", belum, delta=f"-{belum}", delta_color="inverse")
-                st.progress(sudah / total_toko)
+                st.progress(sudah / total_toko if total_toko > 0 else 0)
                 
                 st.divider()
                 st.subheader("📊 Ringkasan Progres Input Per As")
@@ -227,11 +228,10 @@ if st.session_state.page == "HOME":
                 wilayah_pending = df_summary[df_summary['Belum'] > 0]['As'].unique()
                 
                 if len(wilayah_pending) > 0:
-                    selected_as = st.selectbox("Pilih AS untuk melihat daftar toko:", wilayah_pending)
+                    selected_as = st.selectbox("Pilih AS untuk melihat daftar toko belum SO:", wilayah_pending)
                     if selected_as:
                         toko_pending = df_full[(df_full['As'] == selected_as) & (df_full['Status'] == 0)]
                         st.warning(f"Terdapat **{len(toko_pending)} toko** di wilayah **{selected_as}** yang belum input:")
-                        # Menghilangkan indeks dan menggunakan nama kolom baru
                         st.dataframe(toko_pending[['Kode Toko', 'Nama Toko']], hide_index=True, use_container_width=True)
                 else:
                     st.success("🎉 Luar biasa! Semua wilayah sudah menyelesaikan Stock Opname.")
@@ -273,15 +273,19 @@ elif st.session_state.page == "LOGIN":
 elif st.session_state.page == "ADMIN":
     hc, oc = st.columns([5, 1]); hc.header("🛡️ Admin Panel")
     if oc.button("🚪 Logout"): st.session_state.admin_auth, st.session_state.page = False, "HOME"; st.rerun()
+    
     if not st.session_state.admin_auth:
         pw = st.text_input("Admin PW:", type="password")
-        if st.button("Buka"):
+        if st.button("Buka Panel"):
             if pw == "icnkl034": st.session_state.admin_auth = True; st.rerun()
+            else: st.error("Password Salah!")
     else:
-        t1, t2, t3 = st.tabs(["📤 Master & Rekap", "📊 Monitoring", "🔐 Reset"])
-        with t1:
-            f = st.file_uploader("Upload Master", type=["xlsx"])
-            if f and st.button("🚀 Publish Master"): confirm_admin_publish(f)
+        tab1, tab2, tab3 = st.tabs(["📤 Master & Rekap", "📊 Monitoring", "🔐 Reset Password"])
+        
+        with tab1:
+            st.subheader("Upload Master")
+            f_adm = st.file_uploader("Upload Excel", type=["xlsx"])
+            if f_adm and st.button("🚀 Publish Master"): confirm_admin_publish(f_adm)
             st.divider()
             m_df, m_ver = get_master_info()
             if m_df is not None:
@@ -291,20 +295,36 @@ elif st.session_state.page == "ADMIN":
                     for r in all_f:
                         s_df = pd.read_excel(r['secure_url']); s_df.columns = [str(c).strip() for c in s_df.columns]
                         for _, row in s_df.iterrows():
-                            # Master excel tetap menggunakan nama kolom asli 'Prdcd'
                             mask = (m_df['Prdcd'].astype(str) == str(row['Prdcd'])) & (m_df[m_df.columns[0]].astype(str) == str(row[s_df.columns[0]]))
                             if mask.any(): m_df.loc[mask, s_df.columns] = row.values
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
                     st.download_button("📥 Download Rekap", buf.getvalue(), f"Rekap_{get_indonesia_date()}.xlsx")
             st.divider()
+            st.subheader("🧹 Pembersihan Data")
             if st.button("🗑️ Hapus Inputan Lama", use_container_width=True):
                 if m_ver: confirm_delete_old_data(m_ver)
-        with t2:
+                else: st.error("Versi Master Tidak Terdeteksi.")
+
+        with tab2:
+            st.subheader("Log Aktivitas Karyawan")
             logs = load_json_db(LOG_DB_PATH)
             if logs:
                 flat = [{"NIK": k, "Tanggal": t, "Hits": h} for k, d in logs.items() for t, h in d.items()]
-                st.dataframe(pd.DataFrame(flat).sort_values(by="Tanggal", ascending=False), hide_index=True)
+                st.dataframe(pd.DataFrame(flat).sort_values(by="Tanggal", ascending=False), hide_index=True, use_container_width=True)
+
+        with tab3:
+            st.subheader("🔐 Reset Password User")
+            r_nik = st.text_input("Masukkan NIK yang akan direset:", max_chars=10)
+            r_pw = st.text_input("Password Baru:", type="password")
+            if st.button("Simpan Password Baru"):
+                db = load_json_db(USER_DB_PATH)
+                if r_nik in db: 
+                    db[r_nik] = r_pw
+                    if save_json_db(USER_DB_PATH, db):
+                        st.success(f"✅ Berhasil! Password untuk NIK {r_nik} telah diperbarui.")
+                else: 
+                    st.error("NIK tidak ditemukan dalam database!")
 
 # --- 5D. USER INPUT ---
 elif st.session_state.page == "USER_INPUT":
@@ -330,5 +350,3 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Tidak ada!")
-
-
