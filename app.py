@@ -275,7 +275,7 @@ elif st.session_state.page == "ADMIN":
     if oc.button("🚪 Logout"): st.session_state.admin_auth, st.session_state.page = False, "HOME"; st.rerun()
     
     if not st.session_state.admin_auth:
-        pw = st.text_input("Admin PW:", type="password")
+        pw = st.text_input("Admin Password:", type="password")
         if st.button("Buka Panel"):
             if pw == "icnkl034": st.session_state.admin_auth = True; st.rerun()
             else: st.error("Password Salah!")
@@ -350,4 +350,5 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Tidak ada!")
+
 
