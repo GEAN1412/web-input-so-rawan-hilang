@@ -336,7 +336,7 @@ elif st.session_state.page == "USER_INPUT":
     t_in = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="Contoh: TQ86").upper()
     if st.button("🔍 Cari"):
         if len(t_in) == 4: st.session_state.active_toko, st.session_state.user_search_active = t_in, True
-        else: st.error("4 Digit!")
+        else: st.error("Input 4 Digit Kode Toko!")
     if st.session_state.user_search_active:
         df_m, v_now = get_master_info()
         if df_m is not None:
@@ -350,3 +350,4 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Tidak ada!")
+
