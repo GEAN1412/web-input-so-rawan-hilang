@@ -24,7 +24,6 @@ except:
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
-# CSS untuk menyembunyikan elemen bawaan Streamlit
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
@@ -65,7 +64,7 @@ def record_login_hit(nik):
     save_json_db(LOG_DB_PATH, db_logs)
 
 # =================================================================
-# 3. FUNGSI OLAH EXCEL & DASHBOARD (LOGIKA PER AS)
+# 3. FUNGSI OLAH EXCEL & DASHBOARD
 # =================================================================
 def get_indonesia_date():
     bulan = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
@@ -107,14 +106,13 @@ def get_as_detailed_status(m_ver, df_master):
                 code = r['public_id'].split('Hasil_')[-1].split('_v')[0]
                 submitted_codes.add(code)
         
-        # Menggunakan kolom 'As' (A besar, s kecil) sesuai data Anda
+        # Penyesuaian nama kolom sesuai request (Kode Toko & Nama Toko)
         df_stores = df_master[[df_master.columns[0], df_master.columns[1], 'As']].drop_duplicates()
-        df_stores.columns = ['Kode', 'Nama', 'As']
-        df_stores['Status'] = df_stores['Kode'].astype(str).apply(lambda x: 1 if x in submitted_codes else 0)
+        df_stores.columns = ['Kode Toko', 'Nama Toko', 'As']
+        df_stores['Status'] = df_stores['Kode Toko'].astype(str).apply(lambda x: 1 if x in submitted_codes else 0)
         
-        # Buat Ringkasan per Wilayah
         summary = df_stores.groupby('As').agg(
-            Total=('Kode', 'count'),
+            Total=('Kode Toko', 'count'),
             Sudah=('Status', 'sum')
         ).reset_index()
         summary['Belum'] = summary['Total'] - summary['Sudah']
@@ -186,13 +184,12 @@ def show_user_editor(df_in, c_sales, c_fisik, c_stok, c_selisih, toko_id, v_now)
             confirm_user_submit(edited, toko_id, v_now)
 
 # =================================================================
-# 5. SISTEM STATE & ROUTING
+# 6. ROUTING & HOME
 # =================================================================
 for key in ['page', 'logged_in', 'user_nik', 'admin_auth', 'user_search_active', 'active_toko']:
     if key not in st.session_state: st.session_state[key] = False if 'auth' in key or 'in' in key or 'active' in key else "HOME"
 if st.session_state.active_toko is False: st.session_state.active_toko = ""
 
-# --- 5A. HALAMAN HOME ---
 if st.session_state.page == "HOME":
     st.title("📑 Sistem SO Rawan Hilang")
     df_m, v_now = get_master_info()
@@ -202,7 +199,6 @@ if st.session_state.page == "HOME":
             df_full, df_summary = get_as_detailed_status(v_now, df_m)
             
             if not df_summary.empty:
-                # --- A. METRIK GLOBAL ---
                 total_toko = df_summary['Total'].sum()
                 sudah = df_summary['Sudah'].sum()
                 belum = total_toko - sudah
@@ -214,42 +210,32 @@ if st.session_state.page == "HOME":
                 st.progress(sudah / total_toko)
                 
                 st.divider()
-
-                # --- B. TABEL RINGKASAN (Compact Overview) ---
-                st.subheader("📊 Ringkasan Kepatuhan per Wilayah")
+                st.subheader("📊 Ringkasan Progres Input Per As")
                 st.dataframe(
                     df_summary,
                     column_config={
                         "As": "📍 Wilayah",
-                        "Progres (%)": st.column_config.ProgressColumn(
-                            "Progres", format="%d%%", min_value=0, max_value=100
-                        ),
+                        "Progres (%)": st.column_config.ProgressColumn("Progres", format="%d%%", min_value=0, max_value=100),
                         "Total": st.column_config.NumberColumn("Total", format="%d"),
-                        "Sudah": st.column_config.NumberColumn("✅", format="%d"),
-                        "Belum": st.column_config.NumberColumn("⚠️", format="%d"),
-                    },
-                    hide_index=True, use_container_width=True
+                        "Sudah": st.column_config.NumberColumn("Sudah Input", format="%d"),
+                        "Belum": st.column_config.NumberColumn("Belum Input", format="%d"),
+                    }, hide_index=True, use_container_width=True
                 )
 
-                # --- C. SEARCHABLE DROPDOWN (Detail Detail) ---
                 st.divider()
-                st.subheader("🔍 Cek Detail Toko Belum Input")
-                
-                # Filter wilayah yang belum 100% saja agar lebih fokus
+                st.subheader("🔍 Cek Detail Toko Belum Input Per As")
                 wilayah_pending = df_summary[df_summary['Belum'] > 0]['As'].unique()
                 
                 if len(wilayah_pending) > 0:
                     selected_as = st.selectbox("Pilih Wilayah untuk melihat daftar toko:", wilayah_pending)
-                    
                     if selected_as:
-                        # Tampilkan toko yang belum input di wilayah terpilih
                         toko_pending = df_full[(df_full['As'] == selected_as) & (df_full['Status'] == 0)]
                         st.warning(f"Terdapat **{len(toko_pending)} toko** di wilayah **{selected_as}** yang belum input:")
-                        st.table(toko_pending[['Kode', 'Nama']].reset_index(drop=True))
+                        # Menghilangkan indeks dan menggunakan nama kolom baru
+                        st.dataframe(toko_pending[['Kode Toko', 'Nama Toko']], hide_index=True, use_container_width=True)
                 else:
                     st.success("🎉 Luar biasa! Semua wilayah sudah menyelesaikan Stock Opname.")
     st.divider()
-    # Tombol Navigasi
     c1, c2, c3 = st.columns(3)
     if c1.button("🔑 LOGIN", use_container_width=True, type="primary"): 
         st.session_state.page = "LOGIN"; st.rerun()
@@ -305,6 +291,7 @@ elif st.session_state.page == "ADMIN":
                     for r in all_f:
                         s_df = pd.read_excel(r['secure_url']); s_df.columns = [str(c).strip() for c in s_df.columns]
                         for _, row in s_df.iterrows():
+                            # Master excel tetap menggunakan nama kolom asli 'Prdcd'
                             mask = (m_df['Prdcd'].astype(str) == str(row['Prdcd'])) & (m_df[m_df.columns[0]].astype(str) == str(row[s_df.columns[0]]))
                             if mask.any(): m_df.loc[mask, s_df.columns] = row.values
                     buf = io.BytesIO()
