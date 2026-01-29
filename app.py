@@ -224,13 +224,13 @@ if st.session_state.page == "HOME":
                 )
 
                 st.divider()
-                st.subheader("🔍 Cek Detail Toko Belum Input Per As")
-                wilayah_pending = df_summary[df_summary['Belum'] > 0]['As'].unique()
+                st.subheader("🔍 Cek Detail Toko Belum Input Per AS")
+                wilayah_pending = df_summary[df_summary['Belum'] > 0]['AS'].unique()
                 
                 if len(wilayah_pending) > 0:
                     selected_as = st.selectbox("Pilih AS untuk melihat daftar toko belum SO:", wilayah_pending)
                     if selected_as:
-                        toko_pending = df_full[(df_full['As'] == selected_as) & (df_full['Status'] == 0)]
+                        toko_pending = df_full[(df_full['AS'] == selected_as) & (df_full['Status'] == 0)]
                         st.warning(f"Terdapat **{len(toko_pending)} toko** di wilayah **{selected_as}** yang belum input:")
                         st.dataframe(toko_pending[['Kode Toko', 'Nama Toko']], hide_index=True, use_container_width=True)
                 else:
@@ -350,6 +350,7 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Tidak ada!")
+
 
 
 
