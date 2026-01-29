@@ -215,7 +215,7 @@ if st.session_state.page == "HOME":
                 st.dataframe(
                     df_summary,
                     column_config={
-                        "As": "📍 Wilayah",
+                        "As": "📍 AS",
                         "Progres (%)": st.column_config.ProgressColumn("Progres", format="%d%%", min_value=0, max_value=100),
                         "Total": st.column_config.NumberColumn("Target Toko SO", format="%d"),
                         "Sudah": st.column_config.NumberColumn("Sudah Input", format="%d"),
@@ -350,6 +350,7 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Tidak ada!")
+
 
 
 
