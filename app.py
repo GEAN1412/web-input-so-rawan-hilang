@@ -108,10 +108,10 @@ def get_as_detailed_status(m_ver, df_master):
         
         # Penyesuaian nama kolom sesuai request (Kode Toko & Nama Toko)
         df_stores = df_master[[df_master.columns[0], df_master.columns[1], 'As']].drop_duplicates()
-        df_stores.columns = ['Kode Toko', 'Nama Toko', 'As']
+        df_stores.columns = ['Kode Toko', 'Nama Toko', 'AS']
         df_stores['Status'] = df_stores['Kode Toko'].astype(str).apply(lambda x: 1 if x in submitted_codes else 0)
         
-        summary = df_stores.groupby('As').agg(
+        summary = df_stores.groupby('AS').agg(
             Total=('Kode Toko', 'count'),
             Sudah=('Status', 'sum')
         ).reset_index()
@@ -350,6 +350,7 @@ elif st.session_state.page == "USER_INPUT":
                 c_selisih = next((c for c in data.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
             else: st.error("Tidak ada!")
+
 
 
 
