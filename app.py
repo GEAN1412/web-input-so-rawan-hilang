@@ -260,7 +260,7 @@ if st.session_state.page == "HOME":
                     if sel_am:
                         pending_am = df_full[(df_full['AM'] == sel_am) & (df_full['Status'] == 0)]
                         st.warning(f"Terdapat {len(pending_am)} toko di wilayah AM {sel_am} belum SO:")
-                        st.table(pending_am[['Kode', 'Nama']])
+                        st.dataframe(pending_am[['Kode', 'Nama']], hide_index=True, use_container_width=True)
                 else: st.success("Semua AM sudah 100%!")
 
             # EXPANDER AS (YANG DIMINTA)
@@ -271,7 +271,7 @@ if st.session_state.page == "HOME":
                     if sel_as:
                         pending_as = df_full[(df_full['AS'] == sel_as) & (df_full['Status'] == 0)]
                         st.warning(f"Terdapat {len(pending_as)} toko di wilayah AS {sel_as} belum SO:")
-                        st.table(pending_as[['Kode', 'Nama']])
+                        st.dataframe(pending_as[['Kode', 'Nama']], hide_index=True, use_container_width=True)
                 else: st.success("Semua AS sudah 100%!")
     else:
         st.info("💡 Menunggu Admin mempublikasikan master data.")
@@ -371,7 +371,7 @@ elif st.session_state.page == "USER_INPUT":
     hc, oc = st.columns([5, 1]); hc.header(f"📋 Menu Input ({st.session_state.user_nik})")
     if oc.button("🚪 Logout"): st.session_state.logged_in, st.session_state.user_search_active = False, False; st.session_state.page = "HOME"; st.rerun()
     
-    t_in = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="Contoh TQ86").upper()
+    t_in = st.text_input("📍 Kode Toko:", max_chars=4, placeholder="TQ86").upper()
     if st.button("🔍 Cari"):
         if len(t_in) == 4: st.session_state.active_toko, st.session_state.user_search_active = t_in, True
         else: st.error("Isi 4 Digit!")
