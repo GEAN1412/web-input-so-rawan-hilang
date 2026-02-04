@@ -73,13 +73,6 @@ def record_login_hit(nik):
 # 3. FUNGSI OLAH DATA
 # =================================================================
 
-def find_join_key(df):
-    """Mencari kolom kunci Prdcd secara fleksibel"""
-    possible = ['prdcd', 'prd cd', 'product code', 'kode barang']
-    for c in df.columns:
-        if c.lower() in possible: return c
-    return df.columns[4] if len(df.columns) > 4 else df.columns[0]
-
 @st.cache_data(ttl=60)
 def get_master_info():
     try:
@@ -120,22 +113,30 @@ def get_progress_rankings(m_ver, df_master):
             next_cursor = res.get('next_cursor')
             if not next_cursor: break
         
-        df_stores = df_master[[df_master.columns[0], df_master.columns[1], df_master.columns[2], df_master.columns[3]]].drop_duplicates()
-        df_stores.columns = ['Kode', 'Nama', 'AM', 'AS']
-        df_stores['Status'] = df_stores['Kode'].astype(str).apply(lambda x: 1 if x in submitted_codes else 0)
+        # Ambil kolom berdasarkan INDEKS agar AMAN dari typo nama kolom
+        # Col 0: Toko, Col 1: Nama, Col 2: AM, Col 3: AS
+        df_temp = df_master.iloc[:, [0, 1, 2, 3]].copy()
+        df_temp.columns = ['Kode', 'Nama', 'AM', 'AS']
+        df_temp = df_temp.drop_duplicates()
+        df_temp['Status'] = df_temp['Kode'].astype(str).apply(lambda x: 1 if x in submitted_codes else 0)
         
-        am_sum = df_stores.groupby('AM').agg(Target=('Kode', 'count'), Sudah=('Status', 'sum')).reset_index()
-        am_sum['Belum'] = am_sum['Target'] - am_sum['Sudah']
-        am_sum['Progres'] = (am_sum['Sudah'] / am_sum['Target']) * 100
-        am_sum = am_sum.sort_values(by=['Progres', 'Target'], ascending=[True, False])
+        # PROGRES AM
+        am_sum = df_temp.groupby('AM').agg({'Kode': 'count', 'Status': 'sum'}).reset_index()
+        am_sum.columns = ['AM', 'Target Toko SO', 'Sudah Input']
+        am_sum['Belum Input'] = am_sum['Target Toko SO'] - am_sum['Sudah Input']
+        am_sum['Progres'] = (am_sum['Sudah Input'] / am_sum['Target Toko SO']) * 100
+        am_sum = am_sum.sort_values(by=['Progres', 'Target Toko SO'], ascending=[True, False])
 
-        as_sum = df_stores.groupby('AS').agg(Target=('Kode', 'count'), Sudah=('Status', 'sum')).reset_index()
-        as_sum['Belum'] = as_sum['Target'] - as_sum['Sudah']
-        as_sum['Progres'] = (as_sum['Sudah'] / as_sum['Target']) * 100
-        as_sum = as_sum.sort_values(by=['Progres', 'Target'], ascending=[True, False])
+        # PROGRES AS
+        as_sum = df_temp.groupby('AS').agg({'Kode': 'count', 'Status': 'sum'}).reset_index()
+        as_sum.columns = ['AS', 'Target Toko SO', 'Sudah Input']
+        as_sum['Belum Input'] = as_sum['Target Toko SO'] - as_sum['Sudah Input']
+        as_sum['Progres'] = (as_sum['Sudah Input'] / as_sum['Target Toko SO']) * 100
+        as_sum = as_sum.sort_values(by=['Progres', 'Target Toko SO'], ascending=[True, False])
         
-        return df_stores, am_sum, as_sum
-    except: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        return df_temp, am_sum, as_sum
+    except Exception as e:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 def delete_old_reports(current_ver):
     try:
@@ -168,7 +169,7 @@ def confirm_delete_old_data(v_now):
 
 @st.dialog("⚠️ Konfirmasi Publish")
 def confirm_admin_publish(file_obj):
-    st.warning("Publish Master baru akan mereset progres toko hari ini.")
+    st.warning("Publish Master baru akan mereset progres toko harian.")
     if st.button("IYA, Publish Sekarang", type="primary", use_container_width=True):
         status = False
         try:
@@ -194,7 +195,7 @@ def confirm_user_submit(data_full, toko_code, v_id):
 
 @st.fragment
 def show_user_editor(df_full, c_sales, c_fisik, c_stok, c_selisih, toko_id, v_now):
-    # Hide identitas (4 kolom pertama: Toko, Nama, AM, AS)
+    # Sembunyikan kolom identitas (4 kolom pertama)
     display_cols = [c for c in df_full.columns if c not in [df_full.columns[0], df_full.columns[1], df_full.columns[2], df_full.columns[3]]]
     
     df_full[c_sales] = pd.to_numeric(df_full[c_sales], errors='coerce')
@@ -215,9 +216,10 @@ def show_user_editor(df_full, c_sales, c_fisik, c_stok, c_selisih, toko_id, v_no
         if edited_display[c_sales].isnull().any() or edited_display[c_fisik].isnull().any():
             st.error("⚠️ Ada kolom yang kosong!")
         else:
-            # Merge kembali
-            for col in [df_full.columns[0], df_full.columns[1], df_full.columns[2], df_full.columns[3]]:
-                edited_display.insert(df_full.columns.get_loc(col), col, df_full[col].values)
+            # Re-insert kolom identitas dari master asli agar file tersimpan lengkap
+            for col_idx in [0, 1, 2, 3]:
+                col_name = df_full.columns[col_idx]
+                edited_display.insert(col_idx, col_name, df_full[col_name].values)
             
             vs, vf, vh = edited_display[c_sales].fillna(0), edited_display[c_fisik].fillna(0), edited_display[c_stok].fillna(0)
             edited_display[c_selisih] = (vs + vf) - vh
@@ -236,12 +238,13 @@ if st.session_state.page == "HOME":
     if v_now and df_m is not None:
         df_full, df_am, df_as = get_progress_rankings(v_now, df_m)
         if not df_am.empty:
-            t_t = df_am['Target Toko SO'].sum(); s_t = df_am['Sudah Input'].sum()
+            t_t = df_am['Target Toko SO'].sum()
+            s_t = df_am['Sudah Input'].sum()
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Toko", t_t)
-            c2.metric("Sudah Input", s_t, f"{(s_t/t_t):.1%}")
+            c2.metric("Sudah Input", s_t, f"{(s_t/t_t):.1%}" if t_t > 0 else "0%")
             c3.metric("Belum Input", t_t-s_t, delta=f"-({t_t-s_t})", delta_color="inverse")
-            st.progress(s_t/t_t)
+            st.progress(s_t/t_t if t_t > 0 else 0)
             
             st.subheader("📊 Ringkasan Progres AM (Terjelek di Atas)")
             st.dataframe(df_am, column_config={"Progres": st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}, hide_index=True, use_container_width=True)
@@ -255,22 +258,44 @@ if st.session_state.page == "HOME":
     if cl2.button("📝 DAFTAR", use_container_width=True): st.session_state.page = "REGISTER"; st.rerun()
     if cl3.button("🛡️ ADMIN", use_container_width=True): st.session_state.page = "ADMIN"; st.rerun()
 
+# --- LOGIN & REGISTER ---
+elif st.session_state.page == "REGISTER":
+    st.header("📝 Daftar Akun")
+    n_nik = st.text_input("NIK (10 Digit):", max_chars=10); n_pw = st.text_input("Password:", type="password")
+    if st.button("Daftar Sekarang"):
+        if len(n_nik) == 10 and len(n_pw) >= 4:
+            db = load_json_db(USER_DB_PATH)
+            if n_nik not in db:
+                db[n_nik] = n_pw
+                if save_json_db(USER_DB_PATH, db): st.success("✅ Berhasil!"); time.sleep(1); st.session_state.page = "LOGIN"; st.rerun()
+            else: st.error("NIK Terdaftar!")
+    if st.button("⬅️ Kembali"): st.session_state.page = "HOME"; st.rerun()
+
+elif st.session_state.page == "LOGIN":
+    st.header("🔑 Login")
+    l_nik = st.text_input("NIK:", max_chars=10); l_pw = st.text_input("Password:", type="password")
+    if st.button("Masuk", type="primary"):
+        db = load_json_db(USER_DB_PATH)
+        if l_nik in db and db[l_nik] == l_pw:
+            record_login_hit(l_nik)
+            st.session_state.logged_in, st.session_state.user_nik, st.session_state.page = True, l_nik, "USER_INPUT"; st.rerun()
+        else: st.error("Gagal!")
+    if st.button("⬅️ Kembali"): st.session_state.page = "HOME"; st.rerun()
+    st.link_button("📲 Lupa Password? Hubungi Admin", "https://wa.me/6287725860048?text=Halo%20Admin,%20saya%20lupa%20password", use_container_width=True)
+
 # --- ADMIN ---
 elif st.session_state.page == "ADMIN":
     hc, oc = st.columns([5, 1]); hc.header("🛡️ Admin Panel")
     if oc.button("🚪 Logout"): st.session_state.admin_auth, st.session_state.page = False, "HOME"; st.rerun()
-    
     if not st.session_state.admin_auth:
         pw = st.text_input("Admin Password:", type="password")
         if st.button("Buka Panel"):
             if pw == "icnkl034": st.session_state.admin_auth = True; st.rerun()
-            else: st.error("Salah!")
     else:
         t1, t2, t3 = st.tabs(["📤 Master & Rekap", "📊 Monitoring", "🔐 Reset PW"])
         with t1:
-            f_adm = st.file_uploader("Upload Master Baru", type=["xlsx"])
-            if f_adm and st.button("🚀 Publish Master"): confirm_admin_publish(f_adm)
-            
+            f = st.file_uploader("Upload Master Baru", type=["xlsx"])
+            if f and st.button("🚀 Publish Master"): confirm_admin_publish(f)
             st.divider()
             m_df, m_ver = get_master_info()
             if m_df is not None:
@@ -283,38 +308,24 @@ elif st.session_state.page == "ADMIN":
                     next_cursor = res_raw.get('next_cursor')
                     if not next_cursor: break
                 
-                st.info(f"📊 Terdeteksi {len(all_files)} toko sudah input.")
-                if st.button(f"🔄 Gabung & Download Hasil"):
+                if st.button(f"🔄 Gabung & Download ({len(all_files)} Toko)"):
                     with st.spinner("Menggabungkan data..."):
-                        # Normalisasi kolom kunci master
                         m_tk_col = m_df.columns[0]
-                        m_prd_col = find_join_key(m_df)
-                        m_df[m_tk_col] = m_df[m_tk_col].astype(str).str.strip()
-                        m_df[m_prd_col] = m_prd_col_str = m_df[m_prd_col].astype(str).str.strip()
-
+                        m_prd_col = next((c for c in m_df.columns if 'prdcd' in c.lower()), m_df.columns[4])
                         for r in all_files:
                             try:
-                                s_df = pd.read_excel(r['secure_url'])
-                                s_df.columns = [str(c).strip() for c in s_df.columns]
+                                s_df = pd.read_excel(r['secure_url']); s_df.columns = [str(c).strip() for c in s_df.columns]
                                 s_tk_col = s_df.columns[0]
-                                s_prd_col = find_join_key(s_df)
-                                
-                                # Target kolom input
-                                target_cols = [c for c in s_df.columns if any(x in c.lower() for x in ['sales', 'fisik', 'selisih'])]
-                                
+                                s_prd_col = next((c for c in s_df.columns if 'prdcd' in c.lower()), s_df.columns[4])
                                 for _, row in s_df.iterrows():
-                                    tk_val = str(row[s_tk_col]).strip()
-                                    prd_val = str(row[s_prd_col]).strip()
-                                    
-                                    mask = (m_df[m_tk_col] == tk_val) & (m_df[m_prd_col] == prd_val)
+                                    mask = (m_df[m_tk_col].astype(str) == str(row[s_tk_col])) & (m_df[m_prd_col].astype(str) == str(row[s_prd_col]))
                                     if mask.any():
+                                        target_cols = [c for c in s_df.columns if any(x in c.lower() for x in ['sales', 'fisik', 'selisih'])]
                                         m_df.loc[mask, target_cols] = row[target_cols].values
                             except: continue
-                        
                         buf = io.BytesIO()
                         with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
                         st.download_button("📥 Download Rekap", buf.getvalue(), f"Rekap_SO_{get_indonesia_date()}.xlsx")
-
             st.divider()
             if st.button("🗑️ Hapus Data Lama"): confirm_delete_old_data(m_ver)
 
@@ -335,7 +346,7 @@ elif st.session_state.page == "USER_INPUT":
     hc, oc = st.columns([5, 1]); hc.header(f"📋 Menu Input ({st.session_state.user_nik})")
     if oc.button("🚪 Logout"): st.session_state.logged_in, st.session_state.user_search_active = False, False; st.session_state.page = "HOME"; st.rerun()
     
-    t_in = st.text_input("📍 Kode Toko:", max_chars=4).upper()
+    t_in = st.text_input("📍 Kode Toko:", max_chars=4, placeholder=" Contoh TQ86").upper()
     if st.button("🔍 Cari"):
         if len(t_in) == 4: st.session_state.active_toko, st.session_state.user_search_active = t_in, True
         else: st.error("Isi 4 Digit!")
@@ -358,11 +369,3 @@ elif st.session_state.page == "USER_INPUT":
                 c_fisik = next((c for c in data_input.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 c_selisih = next((c for c in data_input.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data_input, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
-
-elif st.session_state.page == "REGISTER":
-    st.header("📝 Daftar")
-    n_nik = st.text_input("NIK (10 Digit):", max_chars=10); n_pw = st.text_input("Password:", type="password")
-    if st.button("Daftar"):
-        if len(n_nik) == 10:
-            db = load_json_db(USER_DB_PATH); db[n_nik] = n_pw; save_json_db(USER_DB_PATH, db); st.success("OK!"); time.sleep(1); st.session_state.page = "LOGIN"; st.rerun()
-    if st.button("Kembali"): st.session_state.page = "HOME"; st.rerun()
