@@ -127,16 +127,16 @@ def get_progress_rankings(m_ver, df_master):
         
         # Rank AM
         am_sum = df_temp.groupby('AM').agg(Target=('Kode', 'count'), Sudah=('Status', 'sum')).reset_index()
-        am_sum['Belum Input'] = am_sum['Target'] - am_sum['Sudah']
+        am_sum['Belum SO'] = am_sum['Target'] - am_sum['Sudah']
         am_sum['Progres'] = (am_sum['Sudah'] / am_sum['Target']) * 100
-        am_sum.columns = ['AM', 'Target Toko SO', 'Sudah Input', 'Belum Input', 'Progres']
+        am_sum.columns = ['AM', 'Target Toko SO', 'Sudah SO', 'Belum SO', 'Progres']
         am_sum = am_sum.sort_values(by=['Progres', 'Target Toko SO'], ascending=[True, False])
 
         # Rank AS
         as_sum = df_temp.groupby('AS').agg(Target=('Kode', 'count'), Sudah=('Status', 'sum')).reset_index()
-        as_sum['Belum Input'] = as_sum['Target'] - as_sum['Sudah']
+        as_sum['Belum SO'] = as_sum['Target'] - as_sum['Sudah']
         as_sum['Progres'] = (as_sum['Sudah'] / as_sum['Target']) * 100
-        as_sum.columns = ['AS', 'Target Toko SO', 'Sudah Input', 'Belum Input', 'Progres']
+        as_sum.columns = ['AS', 'Target Toko SO', 'Sudah SO', 'Belum SO', 'Progres']
         as_sum = as_sum.sort_values(by=['Progres', 'Target Toko SO'], ascending=[True, False])
         
         return df_temp, am_sum, as_sum
@@ -239,7 +239,7 @@ if st.session_state.page == "HOME":
         df_full, df_am, df_as = get_progress_rankings(v_now, df_m)
         if not df_am.empty:
             t_t = df_am['Target Toko SO'].sum()
-            s_t = df_am['Sudah Input'].sum()
+            s_t = df_am['Sudah SO'].sum()
             c1, c2, c3 = st.columns(3)
             c1.metric("Total Toko SO", t_t)
             c2.metric("Sudah SO", s_t, f"{(s_t/t_t):.1%}" if t_t > 0 else "0%")
@@ -254,7 +254,7 @@ if st.session_state.page == "HOME":
 
             # EXPANDER AM (YANG DIMINTA)
             with st.expander("🔍 Cek Detail Toko Belum SO Per AM"):
-                list_am = sorted(df_am[df_am['Sudah Input'] < df_am['Target Toko SO']]['AM'].unique())
+                list_am = sorted(df_am[df_am['Sudah SO'] < df_am['Target Toko SO']]['AM'].unique())
                 if list_am:
                     sel_am = st.selectbox("Pilih Area Manager (AM):", list_am, key="sel_am_home")
                     if sel_am:
@@ -265,7 +265,7 @@ if st.session_state.page == "HOME":
 
             # EXPANDER AS (YANG DIMINTA)
             with st.expander("🔍 Cek Detail Toko Belum SO Per AS"):
-                list_as = sorted(df_as[df_as['Sudah Input'] < df_as['Target Toko SO']]['AS'].unique())
+                list_as = sorted(df_as[df_as['Sudah SO'] < df_as['Target Toko SO']]['AS'].unique())
                 if list_as:
                     sel_as = st.selectbox("Pilih Area Supervisor (AS):", list_as, key="sel_as_home")
                     if sel_as:
@@ -394,4 +394,3 @@ elif st.session_state.page == "USER_INPUT":
                 c_fisik = next((c for c in data_input.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 c_selisih = next((c for c in data_input.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data_input, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
-
