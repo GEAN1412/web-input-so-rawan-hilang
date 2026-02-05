@@ -354,6 +354,7 @@ elif st.session_state.page == "ADMIN":
             if st.button("🗑️ Hapus Inputan Lama", use_container_width=True):
                 if v_now: confirm_delete_old_data(v_now) # Sekarang v_now pasti aman
                 else: st.error("Master tdk ditemukan.")
+                    
         with t2:
             logs = load_json_db(LOG_DB_PATH)
             if logs:
@@ -394,4 +395,5 @@ elif st.session_state.page == "USER_INPUT":
                 c_fisik = next((c for c in data_input.columns if 'fisik' in c.lower()), 'Jml Fisik')
                 c_selisih = next((c for c in data_input.columns if 'selisih' in c.lower()), 'Selisih')
                 show_user_editor(data_input, c_sales, c_fisik, c_stok, c_selisih, st.session_state.active_toko, v_now)
+
 
