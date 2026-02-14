@@ -50,7 +50,7 @@ def get_indonesia_date():
 
 def load_json_db(path):
     try:
-        url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{int(time.time())}/{path}"
+        url = f"https://res.cloudinary.com/{st.secrets["cloud_name"]}/raw/upload/v{int(time.time())}/{path}"
         resp = requests.get(url, timeout=10)
         return resp.json() if resp.status_code == 200 else {}
     except: return {}
@@ -64,10 +64,20 @@ def save_json_db(path, db_dict):
 
 def record_login_hit(nik):
     db_logs = load_json_db(LOG_DB_PATH)
-    today = get_now_wita().strftime('%Y-%m-%d')
+    today = get_now_wita().strftime("%Y-%m-%d")
     if nik not in db_logs: db_logs[nik] = {}
     db_logs[nik][today] = db_logs[nik].get(today, 0) + 1
     save_json_db(LOG_DB_PATH, db_logs)
+
+# Fungsi untuk Mode Maintenance
+def is_maintenance_mode():
+    config = load_json_db(CONFIG_PATH)
+    return config.get("maintenance_mode", False)
+
+def set_maintenance_mode(status: bool):
+    config = load_json_db(CONFIG_PATH)
+    config["maintenance_mode"] = status
+    save_json_db(CONFIG_PATH, config)
 
 # =================================================================
 # 3. FUNGSI OLAH DATA (LOGIKA PROJECT ID)
@@ -82,7 +92,7 @@ def get_active_project_id():
 def get_master_info():
     try:
         p_id = "so_rawan_hilang/master_utama.xlsx"
-        url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{int(time.time())}/{p_id}"
+        url = f"https://res.cloudinary.com/{st.secrets["cloud_name"]}/raw/upload/v{int(time.time())}/{p_id}"
         resp = requests.get(url, timeout=15)
         if resp.status_code == 200:
             df = pd.read_excel(io.BytesIO(resp.content))
@@ -94,7 +104,7 @@ def get_master_info():
 def load_user_save(toko_id, project_id):
     try:
         p_id = f"so_rawan_hilang/hasil/Hasil_{toko_id}_{project_id}.xlsx"
-        url = f"https://res.cloudinary.com/{st.secrets['cloud_name']}/raw/upload/v{int(time.time())}/{p_id}"
+        url = f"https://res.cloudinary.com/{st.secrets["cloud_name"]}/raw/upload/v{int(time.time())}/{p_id}"
         resp = requests.get(url, timeout=10)
         if resp.status_code == 200:
             df = pd.read_excel(io.BytesIO(resp.content))
@@ -163,7 +173,7 @@ def confirm_admin_publish(file_obj):
             # Upload Master
             cloudinary.uploader.upload(file_obj, resource_type="raw", public_id="so_rawan_hilang/master_utama.xlsx", overwrite=True, invalidate=True)
             st.cache_data.clear()
-            st.success(f"✅ Master Terbit! (Project ID: {new_id})"); time.sleep(2.5); st.rerun()
+            st.success(f"✅ Master Baru Terbit! (Project ID: {new_id})"); time.sleep(2.5); st.rerun()
         except Exception as e: st.error(f"Gagal: {e}")
 
 @st.dialog("⚙️ Update Master Aktif")
@@ -173,7 +183,7 @@ def confirm_admin_update_aktif(file_obj):
         try:
             cloudinary.uploader.upload(file_obj, resource_type="raw", public_id="so_rawan_hilang/master_utama.xlsx", overwrite=True, invalidate=True)
             st.cache_data.clear()
-            st.success("✅ Master Berhasil Diperbarui!"); time.sleep(2.5); st.rerun()
+            st.success("✅ Master Berjalan Berhasil Diperbarui!"); time.sleep(2.5); st.rerun()
         except Exception as e: st.error(f"Gagal: {e}")
 
 @st.dialog("Konfirmasi Simpan")
@@ -213,47 +223,100 @@ def show_user_editor(df_full, c_sales, c_fisik, c_stok, c_selisih, toko_id, p_id
             edited_display[c_selisih] = (vs + vf) - vh
             confirm_user_submit(edited_display, toko_id, p_id)
 
+# Dialog untuk Pengaturan Maintenance
+@st.dialog("⚙️ Pengaturan Maintenance")
+def maintenance_dialog():
+    current_status = is_maintenance_mode()
+    st.warning(f"Status saat ini: {'AKTIF' if current_status else 'TIDAK AKTIF'}")
+    if current_status:
+        st.write("Web sedang dalam mode maintenance. Pengguna sementara tidak dapat mengakses fitur input.")
+        if st.button("Nonaktifkan Mode Maintenance", type="primary", use_container_width=True):
+            set_maintenance_mode(False)
+            st.success("✅ Mode Maintenance Dinonaktifkan!"); time.sleep(2.5); st.rerun()
+    else:
+        st.write("Web berjalan normal. Aktifkan ini jika ingin melakukan perbaikan data.")
+        if st.button("Aktifkan Mode Maintenance", type="secondary", use_container_width=True):
+            set_maintenance_mode(True)
+            st.success("✅ Mode Maintenance Diaktifkan!"); time.sleep(2.5); st.rerun()
+
+# Halaman Maintenance
+def show_maintenance_page():
+    # Ganti dengan URL gambar animasi Anda dari Cloudinary atau path lokal jika di-deploy bersama
+    # Untuk contoh ini, saya menggunakan GIF yang ditemukan sebelumnya
+    gif_url = "https://res.cloudinary.com/ddtgzywhh/image/upload/v1771046500/download_lwj6f1.gif" # Ganti dengan URL animasi Anda
+    
+    st.set_page_config(page_title="Sistem SO Rawan Hilang - Maintenance", layout="wide")
+    st.markdown("""
+        <style>
+        #MainMenu {visibility: hidden;}
+        header {visibility: hidden;}
+        footer {visibility: hidden;}
+        #stDecoration {display:none !important;}
+        </style>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image(gif_url, use_column_width=True)
+        st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>Web Sedang Maintenance</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center;'>Kami sedang melakukan pembaruan sistem untuk kenyamanan Anda.</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center;'>Mohon coba kembali beberapa saat lagi.</p>", unsafe_allow_html=True)
+        
+        # Tombol ini hanya akan muncul jika admin belum login
+        if not st.session_state.get('admin_auth', False):
+            if st.button("Masuk sebagai Admin", use_container_width=True):
+                st.session_state.page = "ADMIN"
+                st.rerun()
+
 # =================================================================
 # 5. ROUTING & PAGES
 # =================================================================
 for key in ['page', 'logged_in', 'user_nik', 'admin_auth', 'user_search_active', 'active_toko']:
     if key not in st.session_state: st.session_state[key] = False if 'auth' in key or 'in' in key or 'active' in key else "HOME"
 
-if st.session_state.page == "HOME":
-    st.title("📑 Sistem SO Rawan Hilang")
-    df_m = get_master_info()
-    if df_m is not None:
-        df_full, df_am, df_as = get_progress_rankings(df_m)
-        if not df_am.empty:
-            t_t = df_am['Target Toko SO'].sum(); s_t = df_am['Sudah SO'].sum()
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total Toko SO", t_t)
-            c2.metric("Sudah SO", s_t, f"{(s_t/t_t):.1%}" if t_t > 0 else "0%")
-            c3.metric("Belum SO", t_t-s_t, delta=f"-({t_t-s_t})", delta_color="inverse")
-            st.progress(s_t/t_t if t_t > 0 else 0)
-            st.subheader("📊 Progres AM (Terendah di Atas)")
-            st.dataframe(df_am, column_config={"Progres": st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}, hide_index=True, use_container_width=True)
-            st.subheader("📊 Progres AS (Terendah di Atas)")
-            st.dataframe(df_as, column_config={"Progres": st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}, hide_index=True, use_container_width=True)
-            with st.expander("🔍 Detail Toko Belum SO Per AM"):
-                list_am = sorted(df_am[df_am['Sudah SO'] < df_am['Target Toko SO']]['AM'].unique())
-                if list_am:
-                    sel_am = st.selectbox("Pilih AM:", list_am, key="sel_am_home")
-                    if sel_am:
-                        pending_am = df_full[(df_full['AM'] == sel_am) & (df_full['Status'] == 0)]
-                        st.dataframe(pending_am[['Kode', 'Nama']], hide_index=True, use_container_width=True)
-            with st.expander("🔍 Detail Toko Belum SO Per AS"):
-                list_as = sorted(df_as[df_as['Sudah SO'] < df_as['Target Toko SO']]['AS'].unique())
-                if list_as:
-                    sel_as = st.selectbox("Pilih AS:", list_as, key="sel_as_home")
-                    if sel_as:
-                        pending_as = df_full[(df_full['AS'] == sel_as) & (df_full['Status'] == 0)]
-                        st.dataframe(pending_as[['Kode', 'Nama']], hide_index=True, use_container_width=True)
-    st.divider()
-    cl1, cl2, cl3 = st.columns(3)
-    if cl1.button("🔑 LOGIN", use_container_width=True, type="primary"): st.session_state.page = "LOGIN"; st.rerun()
-    if cl2.button("📝 DAFTAR", use_container_width=True): st.session_state.page = "REGISTER"; st.rerun()
-    if cl3.button("🛡️ ADMIN", use_container_width=True): st.session_state.page = "ADMIN"; st.rerun()
+# Cek status maintenance sebelum menampilkan halaman apapun
+maintenance_active = is_maintenance_mode()
+
+# Jika maintenance aktif DAN bukan halaman admin, tampilkan halaman maintenance
+if maintenance_active and st.session_state.page != "ADMIN":
+    show_maintenance_page()
+else:
+    if st.session_state.page == "HOME":
+        st.title("📑 Sistem SO Rawan Hilang")
+        df_m = get_master_info()
+        if df_m is not None:
+            df_full, df_am, df_as = get_progress_rankings(df_m)
+            if not df_am.empty:
+                t_t = df_am['Target Toko SO'].sum(); s_t = df_am['Sudah SO'].sum()
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total Toko SO", t_t)
+                c2.metric("Sudah SO", s_t, f"{(s_t/t_t):.1%}" if t_t > 0 else "0%")
+                c3.metric("Belum SO", t_t-s_t, delta=f"-({t_t-s_t})", delta_color="inverse")
+                st.progress(s_t/t_t if t_t > 0 else 0)
+                st.subheader("📊 Progres AM (Terendah di Atas)")
+                st.dataframe(df_am, column_config={"Progres": st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}, hide_index=True, use_container_width=True)
+                st.subheader("📊 Progres AS (Terendah di Atas)")
+                st.dataframe(df_as, column_config={"Progres": st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}, hide_index=True, use_container_width=True)
+                with st.expander("🔍 Detail Toko Belum SO Per AM"):
+                    list_am = sorted(df_am[df_am['Sudah SO'] < df_am['Target Toko SO']]['AM'].unique())
+                    if list_am:
+                        sel_am = st.selectbox("Pilih AM:", list_am, key="sel_am_home")
+                        if sel_am:
+                            pending_am = df_full[(df_full['AM'] == sel_am) & (df_full['Status'] == 0)]
+                            st.dataframe(pending_am[['Kode', 'Nama']], hide_index=True, use_container_width=True)
+                with st.expander("🔍 Detail Toko Belum SO Per AS"):
+                    list_as = sorted(df_as[df_as['Sudah SO'] < df_as['Target Toko SO']]['AS'].unique())
+                    if list_as:
+                        sel_as = st.selectbox("Pilih AS:", list_as, key="sel_as_home")
+                        if sel_as:
+                            pending_as = df_full[(df_full['AS'] == sel_as) & (df_full['Status'] == 0)]
+                            st.dataframe(pending_as[['Kode', 'Nama']], hide_index=True, use_container_width=True)
+        st.divider()
+        cl1, cl2, cl3 = st.columns(3)
+        if cl1.button("🔑 LOGIN", use_container_width=True, type="primary"): st.session_state.page = "LOGIN"; st.rerun()
+        if cl2.button("📝 DAFTAR", use_container_width=True): st.session_state.page = "REGISTER"; st.rerun()
+        if cl3.button("🛡️ ADMIN", use_container_width=True): st.session_state.page = "ADMIN"; st.rerun()
 
 elif st.session_state.page == "ADMIN":
     hc, oc = st.columns([5, 1]); hc.header("🛡️ Admin Panel")
@@ -298,6 +361,10 @@ elif st.session_state.page == "ADMIN":
                         st.download_button("📥 Download", buf.getvalue(), f"Rekap_SO_{get_indonesia_date()}.xlsx")
             st.divider()
             if st.button("🗑️ Hapus Data Sampah (Lama)"): confirm_delete_old_data(get_active_project_id())
+            st.divider()
+            # Tombol untuk pengaturan maintenance
+            if st.button("🛠️ PENGATURAN MAINTENANCE", use_container_width=True):
+                maintenance_dialog()
 
         with t2:
             logs = load_json_db(LOG_DB_PATH)
