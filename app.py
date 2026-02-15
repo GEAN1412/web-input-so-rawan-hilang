@@ -22,7 +22,6 @@ try:
 except:
     st.error("Konfigurasi Secrets Cloudinary tidak ditemukan!")
 
-# SET PAGE CONFIG HANYA SEKALI
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
 GIF_MAINTENANCE = "https://res.cloudinary.com/ddtgzywhh/image/upload/v1771046500/download_lwj6f1.gif"
@@ -37,7 +36,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # =================================================================
-# 2. FUNGSI DATABASE (JSON & LOGS)
+# 2. FUNGSI DATABASE & CONFIG
 # =================================================================
 USER_DB_PATH = "so_rawan_hilang/config/users.json"
 LOG_DB_PATH = "so_rawan_hilang/config/access_logs.json"
@@ -148,6 +147,17 @@ def get_progress_rankings(df_master):
         return df_temp, am_sum, as_sum
     except: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
+def delete_old_reports(active_id):
+    try:
+        res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_", max_results=500)
+        deleted = 0
+        for r in res.get("resources", []):
+            if f"_{active_id}" not in r["public_id"]:
+                cloudinary.uploader.destroy(r["public_id"], resource_type="raw")
+                deleted += 1
+        return True, deleted
+    except Exception as e: return False, str(e)
+
 # =================================================================
 # 4. DIALOGS & FRAGMENTS
 # =================================================================
@@ -156,6 +166,7 @@ def get_progress_rankings(df_master):
 def confirm_delete_old_data(active_id):
     st.error(f"Hapus semua file yang BUKAN Project ID: {active_id}?")
     if st.button("IYA, Hapus Sekarang", type="primary", use_container_width=True):
+        status_ok = False
         try:
             res = cloudinary.api.resources(resource_type="raw", type="upload", prefix="so_rawan_hilang/hasil/Hasil_", max_results=500)
             deleted = 0
@@ -163,21 +174,24 @@ def confirm_delete_old_data(active_id):
                 if str(active_id) not in r["public_id"]:
                     cloudinary.uploader.destroy(r["public_id"], resource_type="raw")
                     deleted += 1
-            st.success(f"✅ Inputan Lama Terhapus {deleted} file!"); time.sleep(2.5); st.rerun()
-        except Exception as e: st.error(f"Gagal: {e}")
+            status_ok = True
+        except Exception as e: 
+            st.error(f"Gagal: {e}")
+
+        if status_ok:
+            st.success(f"✅ Inputan Lama Terhapus {deleted} file!")
+            time.sleep(2.5)
+            st.rerun()
 
 @st.dialog("⚠️ Konfirmasi Publish Master Baru")
 def confirm_admin_publish(file_obj):
-    st.error("Tindakan ini akan MERESET SEMUA progres (ID Baru).")
-    if st.button("IYA, Reset & Publish", type="primary", use_container_width=True):
+    st.error("Membuka sesi SO baru. Tampilan toko akan menjadi kosong.")
+    if st.button("IYA, Publish Sekarang", type="primary", use_container_width=True):
         status_ok = False
         new_id = str(int(time.time()))
         try:
+            # LOGIKA: Hanya ganti ID dan Upload Master (TIDAK menghapus file hasil toko secara otomatis)
             save_json_db(CONFIG_PATH, {"active_id": new_id, "maintenance_mode": is_maintenance_mode()})
-            try:
-                cloudinary.api.delete_resources_by_prefix("so_rawan_hilang/hasil/", resource_type="raw")
-            except:
-                pass
             cloudinary.uploader.upload(file_obj, resource_type="raw", public_id="so_rawan_hilang/master_utama.xlsx", overwrite=True, invalidate=True)
             st.cache_data.clear()
             status_ok = True
@@ -185,33 +199,43 @@ def confirm_admin_publish(file_obj):
             st.error(f"Gagal: {e}")
 
         if status_ok:
-            st.success(f"✅ Master Terbit! (ID: {new_id})")
+            st.success(f"✅ Sesi SO Baru Dibuka! (ID: {new_id})")
             time.sleep(2.5)
             st.rerun()
 
-@st.dialog("⚙️ Update Master Aktif")
+@st.dialog("⚙️ Update/Revisi Master Aktif")
 def confirm_admin_update_aktif(file_obj):
-    if st.button("IYA, Update File Master", use_container_width=True):
+    if st.button("IYA, Revisi File Master", use_container_width=True):
+        status_ok = False
         try:
             cloudinary.uploader.upload(file_obj, resource_type="raw", public_id="so_rawan_hilang/master_utama.xlsx", overwrite=True, invalidate=True)
-            done = True
-        except Exception as e: st.error(f"Gagal: {e}")
-        if done:
             st.cache_data.clear()
-            st.success("✅ Master Terbit!"); time.sleep(2.5); st.rerun()
+            status_ok = True
+        except Exception as e: 
+            st.error(f"Gagal: {e}")
+
+        if status_ok:
+            st.success("✅ Master Telah Di Revisi!")
+            time.sleep(2.5)
+            st.rerun()
 
 @st.dialog("Konfirmasi Simpan")
 def confirm_user_submit(data_full, toko_code, p_id):
     if st.button("Ya, Simpan ke Cloud", use_container_width=True):
+        status_ok = False
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='openpyxl') as w: data_full.to_excel(w, index=False)
         try:
             p_id_file = f"so_rawan_hilang/hasil/Hasil_{toko_code}_{p_id}.xlsx"
             cloudinary.uploader.upload(buf.getvalue(), resource_type="raw", public_id=p_id_file, overwrite=True, invalidate=True)
-            done = True
-        except Exception as e: st.error(f"Gagal simpan: {e}")
-        if done:
-            st.success("✅ Inputan Berhasil Tersimpan!"); time.sleep(2.5); st.rerun()
+            status_ok = True
+        except Exception as e: 
+            st.error(f"Gagal simpan: {e}")
+
+        if status_ok:
+            st.success("✅ Inputan Berhasil Tersimpan!")
+            time.sleep(2.5)
+            st.rerun()
 
 @st.fragment
 def show_user_editor(df_full, c_sales, c_fisik, c_stok, c_selisih, toko_id, p_id):
@@ -245,25 +269,24 @@ def maintenance_dialog():
     st.warning(f"Status Maintenance: {'AKTIF' if current_status else 'TIDAK AKTIF'}")
     if st.button("Ubah Status Maintenance", use_container_width=True):
         set_maintenance_mode(not current_status)
-        st.success("✅ Status Berhasil Diubah!"); time.sleep(1.5); st.rerun()
+        st.success("✅ Status Berhasil Diubah!"); time.sleep(2.5); st.rerun()
 
 def show_maintenance_page():
     st.markdown("<br><br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.image(GIF_MAINTENANCE, use_container_width=True)
-        st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>Web Sedang Maintenance</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>🛠️ Web Maintenance</h1>", unsafe_allow_html=True)
         st.markdown("<h3 style='text-align: center;'>Sedang ada pembaruan sistem.</h3>", unsafe_allow_html=True)
         if st.button("Masuk sebagai Admin", use_container_width=True):
             st.session_state.page = "ADMIN"; st.rerun()
 
 # =================================================================
-# 5. ROUTING & PAGES
+# 5. ROUTING & LOGIKA UTAMA
 # =================================================================
 for key in ['page', 'logged_in', 'user_nik', 'admin_auth', 'user_search_active', 'active_toko']:
     if key not in st.session_state: st.session_state[key] = False if 'auth' in key or 'in' in key or 'active' in key else "HOME"
 
-# LOGIKA MAINTENANCE
 if is_maintenance_mode() and st.session_state.page != "ADMIN":
     show_maintenance_page()
 else:
@@ -313,7 +336,7 @@ else:
                 if pw == "icnkl034": st.session_state.admin_auth = True; st.rerun()
         else:
             p_id_act = get_active_project_id()
-            t1, t2, t3 = st.tabs(["📤 Master, Rekap, Mode Maintenance", "📊 Monitoring User", "🔐 Reset PassWord User"])
+            t1, t2, t3 = st.tabs(["📤 Master & Rekap", "📊 Monitoring", "🔐 Reset PassWord"])
             with t1:
                 col_u1, col_u2 = st.columns(2)
                 with col_u1:
@@ -331,7 +354,7 @@ else:
                     all_f = [r for r in res.get("resources", []) if str(p_id_act) in r["public_id"]]
                     st.info(f"📊 {len(all_f)} toko sudah input.")
                     if st.button(f"🔄 Gabung & Download"):
-                        with st.spinner("Proses..."):
+                        with st.spinner("Merging..."):
                             m_tk, m_prd = m_df.columns[0], next((c for c in m_df.columns if 'prdcd' in c.lower()), m_df.columns[4])
                             for r in all_f:
                                 try:
@@ -357,16 +380,19 @@ else:
                     st.dataframe(pd.DataFrame(flat).sort_values(by="Tanggal", ascending=False), hide_index=True, use_container_width=True)
             with t3:
                 r_nik = st.text_input("NIK reset:"); r_pw = st.text_input("Password Baru:", type="password")
-                if st.button("Simpan"):
+                if st.button("Simpan Sekarang"):
                     db = load_json_db(USER_DB_PATH)
-                    if r_nik in db: db[r_nik] = r_pw; save_json_db(USER_DB_PATH, db); st.success("Password Berhasil Di Reset!")
+                    if r_nik in db: 
+                        db[r_nik] = r_pw
+                        save_json_db(USER_DB_PATH, db)
+                        st.success("Password Berhasil Di Reset!")
 
     elif st.session_state.page == "REGISTER":
         st.header("📝 Daftar")
         n_nik = st.text_input("NIK:", max_chars=10); n_pw = st.text_input("Password Baru:", type="password")
         if st.button("Daftar"):
             if len(n_nik) == 10:
-                db = load_json_db(USER_DB_PATH); db[n_nik] = n_pw; save_json_db(USER_DB_PATH, db); st.success("User Berhasil Terdaftar!"); time.sleep(2); st.session_state.page = "LOGIN"; st.rerun()
+                db = load_json_db(USER_DB_PATH); db[n_nik] = n_pw; save_json_db(USER_DB_PATH, db); st.success("OK!"); time.sleep(2); st.session_state.page = "LOGIN"; st.rerun()
         if st.button("Kembali"): st.session_state.page = "HOME"; st.rerun()
 
     elif st.session_state.page == "LOGIN":
@@ -400,13 +426,9 @@ else:
                         if data_in is None:
                             data_in = m_f
                             c_s, c_f = next((c for c in data_in.columns if 'sales' in c.lower()), 'Query Sales'), next((c for c in data_in.columns if 'fisik' in c.lower()), 'Jml Fisik')
-                            # FIX BARIS 370: data_in bukan data_input
                             data_in[c_s], data_in[c_f] = None, None
                         c_st = next((c for c in data_in.columns if 'stok' in c.lower()), 'Stok H-1')
                         c_sl = next((c for c in data_in.columns if 'sales' in c.lower()), 'Query Sales')
                         c_fi = next((c for c in data_in.columns if 'fisik' in c.lower()), 'Jml Fisik')
                         c_se = next((c for c in data_in.columns if 'selisih' in c.lower()), 'Selisih')
                         show_user_editor(data_in, c_sl, c_fi, c_st, c_se, st.session_state.active_toko, p_id_act)
-                    else: st.error("Toko tidak ditemukan.")
-
-
