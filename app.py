@@ -211,7 +211,7 @@ def confirm_user_submit(data_full, toko_code, p_id):
             done = True
         except Exception as e: st.error(f"Gagal simpan: {e}")
         if done:
-            st.success("✅ Berhasil!"); time.sleep(2.5); st.rerun()
+            st.success("✅ Inputan Berhasil Tersimpan!"); time.sleep(2.5); st.rerun()
 
 @st.fragment
 def show_user_editor(df_full, c_sales, c_fisik, c_stok, c_selisih, toko_id, p_id):
@@ -313,7 +313,7 @@ else:
                 if pw == "icnkl034": st.session_state.admin_auth = True; st.rerun()
         else:
             p_id_act = get_active_project_id()
-            t1, t2, t3 = st.tabs(["📤 Master & Rekap", "📊 Monitoring", "🔐 Reset PW"])
+            t1, t2, t3 = st.tabs(["📤 Master, Rekap, Mode Maintenance", "📊 Monitoring User", "🔐 Reset PassWord User"])
             with t1:
                 col_u1, col_u2 = st.columns(2)
                 with col_u1:
@@ -366,7 +366,7 @@ else:
         n_nik = st.text_input("NIK:", max_chars=10); n_pw = st.text_input("Password Baru:", type="password")
         if st.button("Daftar"):
             if len(n_nik) == 10:
-                db = load_json_db(USER_DB_PATH); db[n_nik] = n_pw; save_json_db(USER_DB_PATH, db); st.success("OK!"); time.sleep(1); st.session_state.page = "LOGIN"; st.rerun()
+                db = load_json_db(USER_DB_PATH); db[n_nik] = n_pw; save_json_db(USER_DB_PATH, db); st.success("User Berhasil Terdaftar!"); time.sleep(2); st.session_state.page = "LOGIN"; st.rerun()
         if st.button("Kembali"): st.session_state.page = "HOME"; st.rerun()
 
     elif st.session_state.page == "LOGIN":
@@ -408,4 +408,5 @@ else:
                         c_se = next((c for c in data_in.columns if 'selisih' in c.lower()), 'Selisih')
                         show_user_editor(data_in, c_sl, c_fi, c_st, c_se, st.session_state.active_toko, p_id_act)
                     else: st.error("Toko tidak ditemukan.")
+
 
