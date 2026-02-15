@@ -359,7 +359,7 @@ else:
                 r_nik = st.text_input("NIK reset:"); r_pw = st.text_input("Password Baru:", type="password")
                 if st.button("Simpan"):
                     db = load_json_db(USER_DB_PATH)
-                    if r_nik in db: db[r_nik] = r_pw; save_json_db(USER_DB_PATH, db); st.success("OK!")
+                    if r_nik in db: db[r_nik] = r_pw; save_json_db(USER_DB_PATH, db); st.success("Password Berhasil Di Reset!")
 
     elif st.session_state.page == "REGISTER":
         st.header("📝 Daftar")
@@ -408,3 +408,4 @@ else:
                         c_se = next((c for c in data_in.columns if 'selisih' in c.lower()), 'Selisih')
                         show_user_editor(data_in, c_sl, c_fi, c_st, c_se, st.session_state.active_toko, p_id_act)
                     else: st.error("Toko tidak ditemukan.")
+
