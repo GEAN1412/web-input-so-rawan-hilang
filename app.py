@@ -170,14 +170,24 @@ def confirm_delete_old_data(active_id):
 def confirm_admin_publish(file_obj):
     st.error("Tindakan ini akan MERESET SEMUA progres (ID Baru).")
     if st.button("IYA, Reset & Publish", type="primary", use_container_width=True):
+        status_ok = False
+        new_id = str(int(time.time()))
         try:
-            new_id = str(int(time.time()))
             save_json_db(CONFIG_PATH, {"active_id": new_id, "maintenance_mode": is_maintenance_mode()})
-            cloudinary.api.delete_resources_by_prefix("so_rawan_hilang/hasil/", resource_type="raw")
+            try:
+                cloudinary.api.delete_resources_by_prefix("so_rawan_hilang/hasil/", resource_type="raw")
+            except:
+                pass
             cloudinary.uploader.upload(file_obj, resource_type="raw", public_id="so_rawan_hilang/master_utama.xlsx", overwrite=True, invalidate=True)
             st.cache_data.clear()
-            st.success(f"✅ Master Terbit! (ID: {new_id})"); time.sleep(1.5); st.rerun()
-        except: st.error("Gagal!")
+            status_ok = True
+        except Exception as e: 
+            st.error(f"Gagal: {e}")
+
+        if status_ok:
+            st.success(f"✅ Master Terbit! (ID: {new_id})")
+            time.sleep(2.5)
+            st.rerun()
 
 @st.dialog("⚙️ Update Master Aktif")
 def confirm_admin_update_aktif(file_obj):
