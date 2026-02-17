@@ -24,7 +24,7 @@ except:
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
-GIF_MAINTENANCE = "https://res.cloudinary.com/ddtgzywhh/image/upload/v1771046500/download_lwj6f1.gif"
+GIF_MAINTENANCE = "https://res.cloudinary.com/ddtgzywhh/image/upload/v1771255837/download_1_jkuktz.gif"
 
 st.markdown("""
     <style>
@@ -179,6 +179,7 @@ def confirm_delete_old_data(active_id):
             st.error(f"Gagal: {e}")
 
         if status_ok:
+            st.balloons()
             st.success(f"✅ Inputan Lama Terhapus {deleted} file!")
             time.sleep(2.5)
             st.rerun()
@@ -199,6 +200,7 @@ def confirm_admin_publish(file_obj):
             st.error(f"Gagal: {e}")
 
         if status_ok:
+            st.balloons()
             st.success(f"✅ Sesi SO Baru Dibuka! (ID: {new_id})")
             time.sleep(2.5)
             st.rerun()
@@ -215,6 +217,7 @@ def confirm_admin_update_aktif(file_obj):
             st.error(f"Gagal: {e}")
 
         if status_ok:
+            st.balloons()
             st.success("✅ Master Telah Di Revisi!")
             time.sleep(2.5)
             st.rerun()
@@ -233,6 +236,7 @@ def confirm_user_submit(data_full, toko_code, p_id):
             st.error(f"Gagal simpan: {e}")
 
         if status_ok:
+            st.balloons()
             st.success("✅ Inputan Berhasil Tersimpan!")
             time.sleep(2.5)
             st.rerun()
@@ -269,6 +273,7 @@ def maintenance_dialog():
     st.warning(f"Status Maintenance: {'AKTIF' if current_status else 'TIDAK AKTIF'}")
     if st.button("Ubah Status Maintenance", use_container_width=True):
         set_maintenance_mode(not current_status)
+        st.balloons()
         st.success("✅ Status Berhasil Diubah!"); time.sleep(2.5); st.rerun()
 
 def show_maintenance_page():
@@ -276,8 +281,8 @@ def show_maintenance_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.image(GIF_MAINTENANCE, use_container_width=True)
-        st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>🛠️ Web Maintenance</h1>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align: center;'>Sedang ada pembaruan sistem.</h3>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>🛠️ Web SO Rawan Hilang Tidak Aktif</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center;'>Hari Ini Tidak Ada Update LPP dari Admin, Lanjut Hari Rabu :).</h3>", unsafe_allow_html=True)
         if st.button("Masuk sebagai Admin", use_container_width=True):
             st.session_state.page = "ADMIN"; st.rerun()
 
@@ -385,6 +390,7 @@ else:
                     if r_nik in db: 
                         db[r_nik] = r_pw
                         save_json_db(USER_DB_PATH, db)
+                        st.balloons()
                         st.success("Password Berhasil Di Reset!")
 
     elif st.session_state.page == "REGISTER":
@@ -392,7 +398,7 @@ else:
         n_nik = st.text_input("NIK:", max_chars=10); n_pw = st.text_input("Password Baru:", type="password")
         if st.button("Daftar"):
             if len(n_nik) == 10:
-                db = load_json_db(USER_DB_PATH); db[n_nik] = n_pw; save_json_db(USER_DB_PATH, db); st.success("OK!"); time.sleep(2); st.session_state.page = "LOGIN"; st.rerun()
+                db = load_json_db(USER_DB_PATH); db[n_nik] = n_pw; save_json_db(USER_DB_PATH, db); st.success("User Terdaftar!"); time.sleep(2); st.session_state.page = "LOGIN"; st.rerun()
         if st.button("Kembali"): st.session_state.page = "HOME"; st.rerun()
 
     elif st.session_state.page == "LOGIN":
