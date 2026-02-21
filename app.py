@@ -439,3 +439,4 @@ else:
                         c_se = next((c for c in data_in.columns if 'selisih' in c.lower()), 'Selisih')
                         show_user_editor(data_in, c_sl, c_fi, c_st, c_se, st.session_state.active_toko, p_id_act)
 
+
