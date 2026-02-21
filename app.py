@@ -24,7 +24,7 @@ except:
 
 st.set_page_config(page_title="Sistem SO Rawan Hilang", layout="wide")
 
-GIF_MAINTENANCE = "https://res.cloudinary.com/ddtgzywhh/image/upload/v1771255837/download_1_jkuktz.gif"
+GIF_MAINTENANCE = "https://res.cloudinary.com/ddtgzywhh/image/upload/v1771691248/Jujutsu_Kaisen_gif_Itadori_Nobara_Satoru_sensei_episode_3_iwdsat.gif"
 
 st.markdown("""
     <style>
@@ -282,7 +282,7 @@ def show_maintenance_page():
     with col2:
         st.image(GIF_MAINTENANCE, use_container_width=True)
         st.markdown("<h1 style='text-align: center; color: #FF4B4B;'>🛠️ Web SO Rawan Hilang Tidak Aktif</h1>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align: center;'>Hari Ini Tidak Ada Update LPP dari Admin, Lanjut Hari Rabu :).</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center;'>Hari Ini Tidak Ada Update LPP dari Admin, Next Update LPP Hari Senin :).</h3>", unsafe_allow_html=True)
         if st.button("Masuk sebagai Admin", use_container_width=True):
             st.session_state.page = "ADMIN"; st.rerun()
 
@@ -438,3 +438,4 @@ else:
                         c_fi = next((c for c in data_in.columns if 'fisik' in c.lower()), 'Jml Fisik')
                         c_se = next((c for c in data_in.columns if 'selisih' in c.lower()), 'Selisih')
                         show_user_editor(data_in, c_sl, c_fi, c_st, c_se, st.session_state.active_toko, p_id_act)
+
