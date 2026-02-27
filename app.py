@@ -368,7 +368,7 @@ else:
                             with pd.ExcelWriter(buf) as w: m_df.to_excel(w, index=False)
                             st.download_button("📥 Download Rekap", buf.getvalue(), f"Rekap_SO_{get_indonesia_date()}.xlsx")
                 st.divider()
-                if st.button("🧹 Hapus Sampah"): confirm_delete_old_data(p_id_act)
+                if st.button("🧹 Hapus Inputan Lama"): confirm_delete_old_data(p_id_act)
                 if st.button("🛠️ PENGATURAN MAINTENANCE", use_container_width=True): maintenance_dialog()
 
             with t2:
@@ -434,3 +434,4 @@ else:
                         c_fi = next((c for c in data_in.columns if 'fisik' in c.lower()), 'Jml Fisik')
                         c_se = next((c for c in data_in.columns if 'selisih' in c.lower()), 'Selisih')
                         show_user_editor(data_in, c_sl, c_fi, c_st, c_se, st.session_state.active_toko, p_id_act)
+
