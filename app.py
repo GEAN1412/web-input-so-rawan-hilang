@@ -180,23 +180,39 @@ def confirm_delete_old_data(active_id):
     if st.button("IYA, Hapus Sekarang", type="primary", use_container_width=True):
         ok, res = delete_old_reports(active_id)
         if ok:
-            st.success(f"✅ Berhasil menghapus {res} file!"); time.sleep(1.5); st.rerun()
+            st.success(f"✅ Berhasil menghapus {res} file!"); time.sleep(2.5); st.rerun()
         else: st.error(f"Gagal: {res}")
 
-@st.dialog("⚠️ Konfirmasi Publish Master")
+@st.dialog("⚠️ Konfirmasi Publish Master Baru")
 def confirm_admin_publish(file_obj):
-    st.warning("Publish Master baru akan mereset progres toko hari ini.")
-    if st.button("IYA, Publish & Reset Sekarang", type="primary", use_container_width=True):
-        done = False
+    st.error("Tindakan ini akan MEMBUKA SESI BARU (ID Baru).")
+    st.info("Catatan: Hasil inputan toko dengan ID lama tetap tersimpan di Cloudinary sampai Anda menghapusnya secara manual lewat tombol 'Hapus Sampah'.")
+    
+    if st.button("IYA, Publish Master & Mulai Sesi Baru", type="primary", use_container_width=True):
+        status_ok = False
+        new_id = str(int(time.time()))
         try:
-            new_id = str(int(time.time()))
+            # 1. Simpan ID baru ke config (Reset Tampilan di Web)
             save_json_db(CONFIG_PATH, {"active_id": new_id, "maintenance_mode": is_maintenance_mode()})
-            cloudinary.api.delete_resources_by_prefix("so_rawan_hilang/hasil/", resource_type="raw")
-            cloudinary.uploader.upload(file_obj, resource_type="raw", public_id="so_rawan_hilang/master_utama.xlsx", overwrite=True, invalidate=True)
+            
+            # 2. Upload Master Baru (Tanpa menghapus file hasil toko)
+            cloudinary.uploader.upload(
+                file_obj, 
+                resource_type="raw", 
+                public_id="so_rawan_hilang/master_utama.xlsx", 
+                overwrite=True, 
+                invalidate=True
+            )
+            
             st.cache_data.clear()
-            done = True
-        except Exception as e: st.error(f"Gagal: {e}")
-        if done: st.success("✅ Master Baru Terbit!"); time.sleep(2.5); st.rerun()
+            status_ok = True
+        except Exception as e: 
+            st.error(f"Gagal: {e}")
+
+        if status_ok:
+            st.success(f"✅ Master Baru Terbit! (ID Project: {new_id})")
+            time.sleep(2.5)
+            st.rerun()
 
 @st.dialog("⚙️ Update Master Aktif")
 def confirm_admin_update_aktif(file_obj):
