@@ -299,13 +299,6 @@ else:
                     st.dataframe(df_am, column_config={'Progres': st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}, hide_index=True, use_container_width=True)
                     st.subheader("📊 Progres AS (Terrendah di Atas)")
                     st.dataframe(df_as, column_config={'Progres': st.column_config.ProgressColumn(format="%d%%", min_value=0, max_value=100)}, hide_index=True, use_container_width=True)
-                    with st.expander("🔍 Detail Toko Belum SO Per AS"):
-                        list_as = sorted(df_as[df_as['Sudah SO'] < df_as['Target Toko SO']]['AS'].unique())
-                        if list_as:
-                            sel_as = st.selectbox("Pilih AS:", list_as, key="sel_as_home")
-                            if sel_as:
-                                pending_as = df_full[(df_full['AS'] == sel_as) & (df_full['Status'] == 0)]
-                                st.dataframe(pending_as[["Kode", "Nama"]], hide_index=True, use_container_width=True)
                     with st.expander("🔍 Detail Toko Belum SO Per AM"):
                         list_am = sorted(df_am[df_am['Sudah SO'] < df_am['Target Toko SO']]['AM'].unique())
                         if list_am:
@@ -313,6 +306,13 @@ else:
                             if sel_am:
                                 pending_am = df_full[(df_full['AM'] == sel_am) & (df_full['Status'] == 0)]
                                 st.dataframe(pending_am[["Kode", "Nama"]], hide_index=True, use_container_width=True)
+                    with st.expander("🔍 Detail Toko Belum SO Per AS"):
+                        list_as = sorted(df_as[df_as['Sudah SO'] < df_as['Target Toko SO']]['AS'].unique())
+                        if list_as:
+                            sel_as = st.selectbox("Pilih AS:", list_as, key="sel_as_home")
+                            if sel_as:
+                                pending_as = df_full[(df_full['AS'] == sel_as) & (df_full['Status'] == 0)]
+                                st.dataframe(pending_as[["Kode", "Nama"]], hide_index=True, use_container_width=True)
         st.divider()
         cl1, cl2, cl3 = st.columns(3)
         if cl1.button("🔑 LOGIN", use_container_width=True, type="primary"): st.session_state.page = "LOGIN"; st.rerun()
@@ -434,4 +434,5 @@ else:
                         c_fi = next((c for c in data_in.columns if 'fisik' in c.lower()), 'Jml Fisik')
                         c_se = next((c for c in data_in.columns if 'selisih' in c.lower()), 'Selisih')
                         show_user_editor(data_in, c_sl, c_fi, c_st, c_se, st.session_state.active_toko, p_id_act)
+
 
