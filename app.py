@@ -298,7 +298,7 @@ for key in ['page', 'logged_in', 'user_nik', 'admin_auth', 'user_search_active',
 if is_maintenance_mode() and st.session_state.page != "ADMIN":
     show_maintenance_page()
 else:
-if st.session_state.page == "HOME":
+ if st.session_state.page == "HOME":
     st.title("📑 Sistem SO Rawan Hilang")
         p_id_act = get_active_project_id()
         if p_id_act == "BELUM_ADA_MASTER_AKTIF":
@@ -450,6 +450,7 @@ if st.session_state.page == "HOME":
                         c_fi = next((c for c in data_in.columns if 'fisik' in c.lower()), 'Jml Fisik')
                         c_se = next((c for c in data_in.columns if 'selisih' in c.lower()), 'Selisih')
                         show_user_editor(data_in, c_sl, c_fi, c_st, c_se, st.session_state.active_toko, p_id_act)
+
 
 
 
